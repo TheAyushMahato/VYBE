@@ -39,8 +39,7 @@ app/src/main/java/com/vybe/music/
 
 1. **Clone the repository:**
    ```bash
-   git clone [https://github.com/TheAyushMahato/VYBE.git](https://github.com/TheAyushMahato/VYBE.git)
-   cd VYBE
+   git clone https://github.com/TheAyushMahato/VYBE.git
    ```
 
 2. **Add your Firebase config:**
