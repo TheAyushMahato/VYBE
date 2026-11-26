@@ -60,9 +60,17 @@ class AppUpdateManager(private val context: Context) {
                     val forceUpdate = snapshot.getBoolean("forceUpdate") ?: false
 
                     val currentCode = BuildConfig.VERSION_CODE.toLong()
-                    Log.d("AppUpdateManager", "Current versionCode: $currentCode, Firestore latest: $latestVersionCode")
+                    val currentVersionName = BuildConfig.VERSION_NAME
+                    Log.d("AppUpdateManager", "Current versionCode: $currentCode, Firestore latest: $latestVersionCode, remoteName: $latestVersionName")
 
-                    if (latestVersionCode > currentCode && apkUrl.isNotBlank()) {
+                    val isNewer = isRemoteVersionNewer(
+                        remoteName = latestVersionName,
+                        remoteCode = latestVersionCode,
+                        currentName = currentVersionName,
+                        currentCode = currentCode
+                    )
+
+                    if (isNewer && apkUrl.isNotBlank()) {
                         val info = AppUpdateInfo(
                             latestVersionCode = latestVersionCode,
                             latestVersionName = latestVersionName,
@@ -180,5 +188,33 @@ class AppUpdateManager(private val context: Context) {
 
     fun dismissUpdate() {
         _isDismissed.value = true
+    }
+
+    companion object {
+        fun isRemoteVersionNewer(
+            remoteName: String,
+            remoteCode: Long,
+            currentName: String,
+            currentCode: Long
+        ): Boolean {
+            if (remoteCode <= currentCode) return false
+            fun parseParts(name: String): List<Int> {
+                return name.trim().removePrefix("v").split(".")
+                    .mapNotNull { it.takeWhile { ch -> ch.isDigit() }.toIntOrNull() }
+            }
+            val remoteParts = parseParts(remoteName)
+            val currentParts = parseParts(currentName)
+            if (remoteParts.isNotEmpty() && currentParts.isNotEmpty()) {
+                val maxLen = maxOf(remoteParts.size, currentParts.size)
+                for (i in 0 until maxLen) {
+                    val r = remoteParts.getOrElse(i) { 0 }
+                    val c = currentParts.getOrElse(i) { 0 }
+                    if (r > c) return true
+                    if (r < c) return false
+                }
+                return false
+            }
+            return remoteCode > currentCode
+        }
     }
 }

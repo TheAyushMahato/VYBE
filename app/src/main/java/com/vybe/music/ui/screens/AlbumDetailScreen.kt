@@ -51,6 +51,7 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.vybe.music.model.AlbumDetail
 import com.vybe.music.model.Track
+import com.vybe.music.ui.components.AlbumDetailSkeleton
 import com.vybe.music.ui.components.bouncyClickable
 
 @Composable
@@ -81,12 +82,10 @@ fun AlbumDetailScreen(
             .background(Color(0xFF000000))
     ) {
         if (albumDetail == null && isLoading) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                CircularProgressIndicator(color = Color.White, modifier = Modifier.size(36.dp))
-            }
+            AlbumDetailSkeleton(
+                onBackClick = onBackClick,
+                contentPadding = contentPadding
+            )
             return
         }
 
@@ -386,7 +385,7 @@ fun AlbumDetailScreen(
                                 modifier = Modifier
                                     .size(46.dp)
                                     .clip(RoundedCornerShape(12.dp))
-                                    .background(Color(0xFF1E1E22)),
+                                    .background(Color(0xFF1E1E1E)),
                                 contentAlignment = Alignment.Center
                             ) {
                                 if (track.artworkUrl.isNotBlank()) {

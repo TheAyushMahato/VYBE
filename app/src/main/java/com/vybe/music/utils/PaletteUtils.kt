@@ -38,7 +38,7 @@ object PaletteUtils {
      * For genuinely colorful covers, extracts the primary color from the highest-population colorful swatch
      * and clamps lightness cleanly (0.12f..0.28f) so the ambient glow stays rich and true to the artwork.
      */
-    fun extractColors(bitmap: Bitmap, fallbackDominant: Color = Color(0xFF16161B)): ExtractedColors {
+    fun extractColors(bitmap: Bitmap, fallbackDominant: Color = Color(0xFF161616)): ExtractedColors {
         return try {
             val palette = Palette.from(bitmap)
                 .maximumColorCount(24)
@@ -49,11 +49,11 @@ object PaletteUtils {
 
             if (dominantSwatch == null) {
                 return ExtractedColors(
-                    dominant = Color(0xFF16161B),
-                    darkVibrant = Color(0xFF0A0A0D),
-                    vibrant = Color(0xFF222228),
-                    muted = Color(0xFF101014),
-                    lightVibrant = Color(0xFF2A2A32)
+                    dominant = Color(0xFF161616),
+                    darkVibrant = Color(0xFF0A0A0A),
+                    vibrant = Color(0xFF222222),
+                    muted = Color(0xFF101010),
+                    lightVibrant = Color(0xFF2A2A2A)
                 )
             }
 
@@ -97,11 +97,11 @@ object PaletteUtils {
             if (isMonochrome) {
                 // Return clean deep charcoal/AMOLED dark palette (#0A0A0D → #16161B)
                 return ExtractedColors(
-                    dominant = Color(0xFF16161B),
-                    darkVibrant = Color(0xFF0A0A0D),
-                    vibrant = Color(0xFF222228),
-                    muted = Color(0xFF101014),
-                    lightVibrant = Color(0xFF2A2A32)
+                    dominant = Color(0xFF161616),
+                    darkVibrant = Color(0xFF0A0A0A),
+                    vibrant = Color(0xFF222222),
+                    muted = Color(0xFF101010),
+                    lightVibrant = Color(0xFF2A2A2A)
                 )
             }
 
@@ -154,11 +154,11 @@ object PaletteUtils {
         } catch (e: Exception) {
             Log.e("PaletteUtils", "Failed to extract palette from bitmap: ${e.message}")
             ExtractedColors(
-                dominant = Color(0xFF16161B),
-                darkVibrant = Color(0xFF0A0A0D),
-                vibrant = Color(0xFF222228),
-                muted = Color(0xFF101014),
-                lightVibrant = Color(0xFF2A2A32)
+                dominant = Color(0xFF161616),
+                darkVibrant = Color(0xFF0A0A0A),
+                vibrant = Color(0xFF222222),
+                muted = Color(0xFF101010),
+                lightVibrant = Color(0xFF2A2A2A)
             )
         }
     }
@@ -166,10 +166,10 @@ object PaletteUtils {
     suspend fun extractColorsFromUrl(
         context: Context,
         imageUrl: String,
-        fallbackDominant: Color = Color(0xFF1A1A1E)
+        fallbackDominant: Color = Color(0xFF1A1A1A)
     ): ExtractedColors = withContext(Dispatchers.IO) {
         if (imageUrl.isBlank()) {
-            return@withContext ExtractedColors(fallbackDominant, Color(0xFF121216))
+            return@withContext ExtractedColors(fallbackDominant, Color(0xFF121212))
         }
 
         // Cache hit: instant return, zero disk/CPU overhead
@@ -203,10 +203,10 @@ object PaletteUtils {
                     return@withContext colors
                 }
             }
-            ExtractedColors(fallbackDominant, Color(0xFF121216))
+            ExtractedColors(fallbackDominant, Color(0xFF121212))
         } catch (e: Exception) {
             Log.e("PaletteUtils", "Error loading image for palette extraction: ${e.message}")
-            ExtractedColors(fallbackDominant, Color(0xFF121216))
+            ExtractedColors(fallbackDominant, Color(0xFF121212))
         }
     }
 

@@ -64,6 +64,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.vybe.music.model.Track
+import com.vybe.music.ui.components.SearchScreenSkeleton
 import com.vybe.music.ui.components.VybeTrackArtwork
 import com.vybe.music.ui.components.bouncyClickable
 
@@ -93,8 +94,6 @@ fun SearchScreen(
     }
 
     val context = LocalContext.current
-    var selectedCategory by rememberSaveable { mutableStateOf("Tracks") }
-    val categories = listOf("Tracks", "Local", "Podcasts", "Artists", "Albums", "Playlists")
 
     val voiceLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -120,20 +119,20 @@ fun SearchScreen(
             .background(Color(0xFF000000))
             .statusBarsPadding()
     ) {
-        // ── 1. Top Search Bar Row ──
+        // ── 1. Top Search Bar Row (Symmetrical: Back 46dp, Input Pill 46dp, Mic 46dp) ──
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Circular Back Button (48.dp, CircleShape, #1A1A1D fill, crisp #FFFFFF arrow)
+            // Circular Back Button (46.dp, CircleShape, #1A1A1A surface)
             Box(
                 modifier = Modifier
-                    .size(48.dp)
+                    .size(46.dp)
                     .clip(CircleShape)
-                    .background(Color(0xFF1A1A1D))
+                    .background(Color(0xFF1A1A1A))
                     .bouncyClickable(pressedScale = 0.92f, onClick = onBackClick),
                 contentAlignment = Alignment.Center
             ) {
@@ -145,7 +144,7 @@ fun SearchScreen(
                 )
             }
 
-            // Pill-Shaped Search Input (48.dp, CircleShape, #121215 fill, zero harsh border)
+            // Pill-Shaped Search Input (46.dp height, CircleShape, #1A1A1A surface, zero harsh border)
             BasicTextField(
                 value = searchQuery,
                 onValueChange = onQueryChanged,
@@ -158,14 +157,14 @@ fun SearchScreen(
                 singleLine = true,
                 modifier = Modifier
                     .weight(1f)
-                    .height(48.dp),
+                    .height(46.dp),
                 decorationBox = { innerTextField ->
                     Row(
                         modifier = Modifier
                             .fillMaxSize()
                             .clip(CircleShape)
-                            .background(Color(0xFF121215))
-                            .padding(horizontal = 16.dp),
+                            .background(Color(0xFF1A1A1A))
+                            .padding(horizontal = 14.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
@@ -181,7 +180,7 @@ fun SearchScreen(
                         ) {
                             if (searchQuery.isEmpty()) {
                                 Text(
-                                    text = "Search YouTube Music...",
+                                    text = "Search songs, artists, albums...",
                                     color = Color(0xFF8E8E93),
                                     fontSize = 15.sp
                                 )
@@ -203,67 +202,36 @@ fun SearchScreen(
                                     modifier = Modifier.size(18.dp)
                                 )
                             }
-                            Spacer(modifier = Modifier.width(6.dp))
-                        }
-
-                        // Voice Search Mic Button
-                        Box(
-                            modifier = Modifier
-                                .size(28.dp)
-                                .clip(CircleShape)
-                                .bouncyClickable(pressedScale = 0.85f) {
-                                    val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                                        putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                                        putExtra(RecognizerIntent.EXTRA_PROMPT, "Search YouTube Music...")
-                                    }
-                                    try {
-                                        voiceLauncher.launch(intent)
-                                    } catch (e: Exception) {
-                                        Toast.makeText(context, "Voice recognition not available", Toast.LENGTH_SHORT).show()
-                                    }
-                                },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Mic,
-                                contentDescription = "Voice search",
-                                tint = Color.White,
-                                modifier = Modifier.size(19.dp)
-                            )
                         }
                     }
                 }
             )
-        }
 
-        // ── 2. Category Filter Chips Row ──
-        LazyRow(
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 2.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 6.dp)
-        ) {
-            items(categories) { category ->
-                val isSelected = selectedCategory == category
-                Box(
-                    modifier = Modifier
-                        .height(36.dp)
-                        .clip(RoundedCornerShape(50))
-                        .background(if (isSelected) Color(0xFFE6E6E6) else Color(0xFF181818))
-                        .bouncyClickable(pressedScale = 0.92f) {
-                            selectedCategory = category
+            // Separate Circular Voice / Mic Button (46.dp, CircleShape, exact same #1A1A1A surface as Back)
+            Box(
+                modifier = Modifier
+                    .size(46.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFF1A1A1A))
+                    .bouncyClickable(pressedScale = 0.90f) {
+                        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                            putExtra(RecognizerIntent.EXTRA_PROMPT, "Search songs, artists, albums...")
                         }
-                        .padding(horizontal = 16.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = category,
-                        fontSize = 13.5.sp,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                        color = if (isSelected) Color(0xFF121212) else Color.White
-                    )
-                }
+                        try {
+                            voiceLauncher.launch(intent)
+                        } catch (e: Exception) {
+                            Toast.makeText(context, "Voice recognition not available", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Mic,
+                    contentDescription = "Voice search",
+                    tint = Color.White,
+                    modifier = Modifier.size(20.dp)
+                )
             }
         }
 
@@ -373,28 +341,9 @@ fun SearchScreen(
             } else {
                 // ── Active Search Results State ──
 
-                if (isSearching && searchResults.isEmpty()) {
+                if (isSearching) {
                     item {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 80.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(56.dp)
-                                    .clip(RoundedCornerShape(16.dp))
-                                    .background(Color(0xFF242424)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                CircularProgressIndicator(
-                                    color = Color.White,
-                                    strokeWidth = 2.5.dp,
-                                    modifier = Modifier.size(28.dp)
-                                )
-                            }
-                        }
+                        SearchScreenSkeleton()
                     }
                 } else if (!isSearching && searchResults.isEmpty()) {
                     item {
@@ -412,104 +361,15 @@ fun SearchScreen(
                         }
                     }
                 } else if (searchResults.isNotEmpty()) {
-                    if (selectedCategory == "Albums") {
-                        val distinctAlbums = searchResults
-                            .filter { it.album.isNotBlank() }
-                            .distinctBy { it.album.lowercase() }
-
-                        items(distinctAlbums, key = { "alb_res_${it.album}_${it.id}" }) { track ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        addRecent(track.album)
-                                        onAlbumClick(null, track.album, track.artist, track.artworkUrl, "")
-                                    }
-                                    .padding(horizontal = 16.dp, vertical = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                VybeTrackArtwork(
-                                    track = track,
-                                    modifier = Modifier.size(54.dp),
-                                    shape = RoundedCornerShape(12.dp)
-                                )
-                                Spacer(modifier = Modifier.width(14.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = track.album,
-                                        fontSize = 15.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = Color.White,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = "${track.artist} • Album",
-                                        fontSize = 13.sp,
-                                        color = Color(0xFFA0A0A0),
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                            }
-                        }
-                    } else if (selectedCategory == "Artists") {
-                        val distinctArtists = searchResults
-                            .distinctBy { it.artist.lowercase() }
-
-                        items(distinctArtists, key = { "art_res_${it.artist}_${it.id}" }) { track ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        addRecent(track.artist)
-                                        onOpenArtistDetail(track.artist, false)
-                                    }
-                                    .padding(horizontal = 16.dp, vertical = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                AsyncImage(
-                                    model = ImageRequest.Builder(LocalContext.current)
-                                        .data(track.artworkUrl)
-                                        .crossfade(200)
-                                        .build(),
-                                    contentDescription = track.artist,
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier
-                                        .size(54.dp)
-                                        .clip(CircleShape)
-                                        .background(Color(0xFF222222))
-                                )
-                                Spacer(modifier = Modifier.width(14.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = track.artist,
-                                        fontSize = 15.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = Color.White,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = "Artist",
-                                        fontSize = 13.sp,
-                                        color = Color(0xFFA0A0A0)
-                                    )
-                                }
-                            }
-                        }
-                    } else {
-                        // Top Song Hero Card (first result)
-                        val topSong = searchResults.first()
-                        item(key = "top_song_${topSong.id}") {
+                    // Top Song Hero Card (first result)
+                    val topSong = searchResults.first()
+                    item(key = "top_song_${topSong.id}") {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = 16.dp, vertical = 6.dp)
                                 .clip(RoundedCornerShape(22.dp))
-                                .background(Color(0xFF121215))
+                                .background(Color(0xFF121212))
                                 .clickable {
                                     addRecent(topSong.title)
                                     onTrackClick(topSong, searchResults)
@@ -532,14 +392,14 @@ fun SearchScreen(
                                     Box(
                                         modifier = Modifier
                                             .clip(RoundedCornerShape(6.dp))
-                                            .background(Color(0xFF242428))
+                                            .background(Color(0xFF242424))
                                             .padding(horizontal = 8.dp, vertical = 3.dp)
                                     ) {
                                         Text(
                                             text = "TOP SONG",
                                             fontSize = 10.sp,
                                             fontWeight = FontWeight.Bold,
-                                            color = Color(0xFFE5E5EA)
+                                            color = Color(0xFFE5E5E5)
                                         )
                                     }
 
@@ -572,7 +432,7 @@ fun SearchScreen(
                                     modifier = Modifier
                                         .size(46.dp)
                                         .clip(CircleShape)
-                                        .background(Color(0xFF3A3A3E))
+                                        .background(Color(0xFF3A3A3A))
                                         .bouncyClickable(
                                             pressedScale = 0.90f,
                                             onClick = {
@@ -612,7 +472,6 @@ fun SearchScreen(
                         }
                     }
                 }
-            }
             }
         }
     }
@@ -661,7 +520,7 @@ private fun SearchResultItem(
             )
             Spacer(modifier = Modifier.height(2.dp))
             Text(
-                text = "${track.artist} • ${track.album}",
+                text = com.vybe.music.data.TrackMetadataIndex.formatSubtitle(track.artist, track.album),
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Normal,
                 color = Color(0xFF9E9E9E),

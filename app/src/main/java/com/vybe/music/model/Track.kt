@@ -1,5 +1,8 @@
 package com.vybe.music.model
 
+import androidx.compose.runtime.Immutable
+
+@Immutable
 data class Track(
     val id: String,
     val title: String,
@@ -26,6 +29,7 @@ data class Track(
     }
 }
 
+@Immutable
 data class CustomPlaylist(
     val id: String,
     val title: String,

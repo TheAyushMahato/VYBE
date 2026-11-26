@@ -79,7 +79,7 @@ fun VybeTrackArtwork(
     Box(
         modifier = modifier
             .clip(shape)
-            .background(Color(0xFF1E1E22)),
+            .background(Color(0xFF1E1E1E)),
         contentAlignment = Alignment.Center
     ) {
         SubcomposeAsyncImage(

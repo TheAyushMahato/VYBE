@@ -30,6 +30,36 @@ object ArtistRepository {
     private val gson = Gson()
     private val artistCache = mutableMapOf<String, ArtistDetail>()
 
+    /**
+     * Strict validator for artist portrait URLs.
+     * Rejects empty/blank URLs and any known Deezer / CDN silhouette placeholder patterns.
+     */
+    fun isValidArtistImageUrl(url: String?): Boolean {
+        if (url.isNullOrBlank()) return false
+        val lower = url.lowercase().trim()
+        if (lower.contains("/artist//")) return false
+        if (lower.contains("d41d8cd98f00b204e9800998ecf8427e")) return false
+        if (lower.contains("default_artist")) return false
+        if (lower.contains("placeholder") || lower.contains("avatar_default") || lower.contains("silhouette")) return false
+        // Known Deezer empty silhouette placeholder MD5 hashes
+        val knownSilhouetteHashes = setOf(
+            "1e7e8346174a7a8cfc6a8b13d2f9d14d",
+            "b86a87796d19485f7a014a60ea511c94",
+            "552bc47385f09199d7b5791fc51db778",
+            "2dfb9442e9759dc3eec4b29bb1f6c442",
+            "25cb90a2a46c19f564d6db53df904351",
+            "b4e31846b9dbebe9a53820cb008b8b8f",
+            "8f52232a510522c0b435ff3b683ef090",
+            "508dd64267e108e4046178c77aa7ff8a",
+            "5856ebfc4db90ad562a1b5d13a52e05a",
+            "d1417076d3f27b5886ca4e1a0b3e64f8"
+        )
+        for (hash in knownSilhouetteHashes) {
+            if (lower.contains(hash)) return false
+        }
+        return true
+    }
+
     // Curated catalog of verified top artists with verified CDN photos & genre tags
     val verifiedCatalog: List<ArtistSummary> = listOf(
         ArtistSummary(
@@ -124,61 +154,61 @@ object ArtistRepository {
         ),
         ArtistSummary(
             name = "Arctic Monkeys",
-            imageUrl = "https://e-cdns-images.dzcdn.net/images/artist/b86a87796d19485f7a014a60ea511c94/500x500-000000-80-0-0.jpg",
+            imageUrl = "https://cdn-images.dzcdn.net/images/artist/6c03e4c7c36800897fd468633286db24/500x500-000000-80-0-0.jpg",
             genre = "Indie Rock / Alt-Rock",
             topTrackTitle = "Do I Wanna Know?"
         ),
         ArtistSummary(
             name = "Lana Del Rey",
-            imageUrl = "https://e-cdns-images.dzcdn.net/images/artist/552bc47385f09199d7b5791fc51db778/500x500-000000-80-0-0.jpg",
+            imageUrl = "https://cdn-images.dzcdn.net/images/artist/8994d3be1a59a72f887f1f8afd2d4c6c/500x500-000000-80-0-0.jpg",
             genre = "Dream Pop / Baroque Pop",
             topTrackTitle = "Summertime Sadness"
         ),
         ArtistSummary(
             name = "Britney Spears",
-            imageUrl = "https://e-cdns-images.dzcdn.net/images/artist/1e7e8346174a7a8cfc6a8b13d2f9d14d/500x500-000000-80-0-0.jpg",
+            imageUrl = "https://cdn-images.dzcdn.net/images/artist/caea45732bb52679494602c60430435a/500x500-000000-80-0-0.jpg",
             genre = "Dance-Pop / Pop",
             topTrackTitle = "Toxic"
         ),
         ArtistSummary(
             name = "Frank Ocean",
-            imageUrl = "https://e-cdns-images.dzcdn.net/images/artist/b4e31846b9dbebe9a53820cb008b8b8f/500x500-000000-80-0-0.jpg",
+            imageUrl = "https://cdn-images.dzcdn.net/images/artist/d57b0431d7d794302e1782dfd7a3800d/500x500-000000-80-0-0.jpg",
             genre = "R&B / Soul",
             topTrackTitle = "Lost"
         ),
         ArtistSummary(
             name = "Drake",
-            imageUrl = "https://e-cdns-images.dzcdn.net/images/artist/508dd64267e108e4046178c77aa7ff8a/500x500-000000-80-0-0.jpg",
+            imageUrl = "https://cdn-images.dzcdn.net/images/artist/70223888f501f4b843142e071abda364/500x500-000000-80-0-0.jpg",
             genre = "Hip-Hop / Rap",
             topTrackTitle = "God's Plan"
         ),
         ArtistSummary(
             name = "Tame Impala",
-            imageUrl = "https://e-cdns-images.dzcdn.net/images/artist/25cb90a2a46c19f564d6db53df904351/500x500-000000-80-0-0.jpg",
+            imageUrl = "https://cdn-images.dzcdn.net/images/artist/879015e713cc6ad6ffaeec154c027505/500x500-000000-80-0-0.jpg",
             genre = "Psychedelic Pop / Rock",
             topTrackTitle = "The Less I Know The Better"
         ),
         ArtistSummary(
             name = "SZA",
-            imageUrl = "https://e-cdns-images.dzcdn.net/images/artist/d1417076d3f27b5886ca4e1a0b3e64f8/500x500-000000-80-0-0.jpg",
+            imageUrl = "https://cdn-images.dzcdn.net/images/artist/c1291c474f833ba1d02cc3bc3e0940eb/500x500-000000-80-0-0.jpg",
             genre = "R&B / Neo Soul",
             topTrackTitle = "Kill Bill"
         ),
         ArtistSummary(
             name = "Coldplay",
-            imageUrl = "https://e-cdns-images.dzcdn.net/images/artist/8f52232a510522c0b435ff3b683ef090/500x500-000000-80-0-0.jpg",
+            imageUrl = "https://cdn-images.dzcdn.net/images/artist/3087954bca22f306324912e5ac8375c3/500x500-000000-80-0-0.jpg",
             genre = "Alt-Rock / Pop",
             topTrackTitle = "Yellow"
         ),
         ArtistSummary(
             name = "Bruno Mars",
-            imageUrl = "https://e-cdns-images.dzcdn.net/images/artist/2dfb9442e9759dc3eec4b29bb1f6c442/500x500-000000-80-0-0.jpg",
+            imageUrl = "https://cdn-images.dzcdn.net/images/artist/90f0b5b11df4f87ee878f38569b5995b/500x500-000000-80-0-0.jpg",
             genre = "Pop / Funk / R&B",
             topTrackTitle = "That's What I Like"
         ),
         ArtistSummary(
             name = "Kendrick Lamar",
-            imageUrl = "https://e-cdns-images.dzcdn.net/images/artist/5856ebfc4db90ad562a1b5d13a52e05a/500x500-000000-80-0-0.jpg",
+            imageUrl = "https://cdn-images.dzcdn.net/images/artist/be0a7c550567f4af0ed202d7235b74d6/500x500-000000-80-0-0.jpg",
             genre = "Hip-Hop / West Coast",
             topTrackTitle = "Not Like Us"
         ),
@@ -344,10 +374,11 @@ object ArtistRepository {
                 if (!item.isJsonObject) continue
                 val obj = item.asJsonObject
                 val name = obj.get("name")?.asString?.trim() ?: continue
-                val pic = obj.get("picture_big")?.asString
+                val rawPic = obj.get("picture_big")?.asString
                     ?: obj.get("picture_medium")?.asString
                     ?: obj.get("picture")?.asString
                     ?: ""
+                val pic = rawPic.takeIf { isValidArtistImageUrl(it) } ?: ""
                 list.add(CuratedArtist(name = name, imageUrl = pic))
             }
             list
@@ -430,9 +461,10 @@ object ArtistRepository {
 
                 if (title.isNotBlank()) {
                     val cleanThumb = if (thumb.isNotBlank()) {
-                        thumb.replace(Regex("=w\\d+-h\\d+.*"), "=w500-h500-l90-rj")
+                        thumb.replace(Regex("=w\\d+-h\\d+.*"), "=w544-h544-l90-rj")
                     } else ""
-                    list.add(CuratedArtist(name = title.trim(), imageUrl = cleanThumb))
+                    val validThumb = cleanThumb.takeIf { isValidArtistImageUrl(it) } ?: ""
+                    list.add(CuratedArtist(name = title.trim(), imageUrl = validThumb))
                 }
             }
             list
@@ -501,18 +533,19 @@ object ArtistRepository {
             combinedSongs.addAll(itunesSongs)
         }
 
-        // Image / Banner resolution: pick highest resolution available
-        val finalBanner = ytResult?.bannerUrl?.takeIf { it.isNotBlank() }
-            ?: ytResult?.avatarUrl?.takeIf { it.isNotBlank() }
-            ?: saavnImg.takeIf { it.isNotBlank() }
-            ?: summaryMatch?.imageUrl
-            ?: combinedSongs.firstOrNull()?.artworkUrl
-            ?: ""
+        // Image / Banner resolution: pick highest resolution validated image available, fallback to top track album art
+        val topTrackArtwork = combinedSongs.firstOrNull { it.artworkUrl.isNotBlank() }?.artworkUrl.orEmpty()
+        val finalBanner = ytResult?.bannerUrl?.takeIf { isValidArtistImageUrl(it) }
+            ?: ytResult?.avatarUrl?.takeIf { isValidArtistImageUrl(it) }
+            ?: saavnImg.takeIf { isValidArtistImageUrl(it) }
+            ?: summaryMatch?.imageUrl?.takeIf { isValidArtistImageUrl(it) }
+            ?: topTrackArtwork
 
-        val finalAvatar = ytResult?.avatarUrl?.takeIf { it.isNotBlank() }
-            ?: saavnImg.takeIf { it.isNotBlank() }
-            ?: summaryMatch?.imageUrl
-            ?: finalBanner
+        val finalAvatar = ytResult?.avatarUrl?.takeIf { isValidArtistImageUrl(it) }
+            ?: saavnImg.takeIf { isValidArtistImageUrl(it) }
+            ?: summaryMatch?.imageUrl?.takeIf { isValidArtistImageUrl(it) }
+            ?: finalBanner.takeIf { isValidArtistImageUrl(it) }
+            ?: topTrackArtwork
 
         // Monthly listeners: format cleanly, e.g. "1.02M"
         val rawListeners = ytResult?.monthlyListeners?.takeIf { it.isNotBlank() }

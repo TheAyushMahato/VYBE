@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -32,6 +34,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.pager.HorizontalPager
 import com.vybe.music.data.repository.ArtistRepository
 import androidx.compose.foundation.pager.rememberPagerState
@@ -47,9 +52,16 @@ import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
+import com.vybe.music.model.EditorialAlbum
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -71,7 +83,9 @@ import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -87,6 +101,7 @@ import dev.chrisbanes.haze.hazeChild
 import com.vybe.music.model.ArtistSummary
 import com.vybe.music.model.Track
 import com.vybe.music.ui.components.ArtistSpotlightCard
+import com.vybe.music.ui.components.HomeScreenSkeleton
 import com.vybe.music.ui.components.MiniEqualizerBars
 import com.vybe.music.ui.components.VybeCrystalHeader
 import com.vybe.music.ui.components.VybeGlassTopHeader
@@ -150,16 +165,6 @@ val spotlightArtists = listOf(
     )
 )
 
-data class EditorialAlbum(
-    val title: String,
-    val subtitle: String,
-    val artist: String = "",
-    val year: String = "",
-    val artworkUrl: String,
-    val browseId: String? = null,
-    val sampleTrack: Track
-)
-
 data class EditorialMix(
     val title: String,
     val subtitle: String,
@@ -167,6 +172,56 @@ data class EditorialMix(
     val tracks: List<Track>
 )
 
+object VybeFlowHeroPosters {
+    // Curated iconic, highly aesthetic album & single covers
+    val CURATED_ICONIC_POSTERS = listOf(
+        // Arctic Monkeys - AM (Do I Wanna Know?, I Wanna Be Yours)
+        "https://is1-ssl.mzstatic.com/image/thumb/Music115/v4/bf/25/11/bf251141-860d-71b5-6fbf-89912079fef7/887828031797.jpg/1000x1000bb.jpg",
+        // Arctic Monkeys - Favourite Worst Nightmare (505)
+        "https://is1-ssl.mzstatic.com/image/thumb/Music114/v4/a4/c4/15/a4c4153b-eefc-7df9-59eb-03b608933b9e/887828038864.rgb.jpg/1000x1000bb.jpg",
+        // The Weeknd - After Hours
+        "https://is1-ssl.mzstatic.com/image/thumb/Music115/v4/71/6a/c5/716ac5b9-1f2e-07f9-843b-31d7e7e59b20/20UMGIM10356.rgb.jpg/1000x1000bb.jpg",
+        // The Weeknd - Starboy
+        "https://is1-ssl.mzstatic.com/image/thumb/Music115/v4/ec/3b/b1/ec3bb1ec-aa7c-8716-16e5-4f329971844b/16UMGIM56468.rgb.jpg/1000x1000bb.jpg",
+        // The Weeknd - House Of Balloons
+        "https://is1-ssl.mzstatic.com/image/thumb/Music125/v4/ad/43/40/ad434005-7f30-7cb7-05c0-4286134b2cfc/21UMGIM22543.rgb.jpg/1000x1000bb.jpg",
+        // JENNIE - Mantra
+        "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/7e/61/98/7e6198f3-b9dc-c3c7-beff-1e4e3751717d/196872557457.jpg/1000x1000bb.jpg",
+        // Britney Spears - In The Zone (Toxic)
+        "https://is1-ssl.mzstatic.com/image/thumb/Music125/v4/d5/43/8a/d5438a2e-4860-2ff8-86a0-a92c48858a7f/886444007801.jpg/1000x1000bb.jpg",
+        // Britney Spears - Circus (Womanizer)
+        "https://is1-ssl.mzstatic.com/image/thumb/Music125/v4/e0/75/ca/e075ca33-21c8-2b81-d102-f3f2ae18e5cf/886444007825.jpg/1000x1000bb.jpg",
+        // Lana Del Rey - Born to Die (Summertime Sadness)
+        "https://is1-ssl.mzstatic.com/image/thumb/Music115/v4/c6/df/97/c6df9724-4f01-f18c-3677-80ecdc856dfa/00602527934243.rgb.jpg/1000x1000bb.jpg",
+        // Lana Del Rey - Ultraviolence (West Coast)
+        "https://is1-ssl.mzstatic.com/image/thumb/Music114/v4/b8/b8/b4/b8b8b408-7a5f-e555-5f53-29ec8ad4e427/00602537874485.rgb.jpg/1000x1000bb.jpg",
+        // Pritam, Arijit Singh - Brahmastra
+        "https://c.saavncdn.com/871/Brahmastra-Original-Motion-Picture-Soundtrack-Hindi-2022-20221006155213-1000x1000.jpg",
+        // Diljit Dosanjh - G.O.A.T.
+        "https://c.saavncdn.com/597/G-O-A-T-Punjabi-2020-20240708055140-1000x1000.jpg"
+    )
+
+    fun isValidHeroArtwork(url: String?): Boolean {
+        if (url.isNullOrBlank()) return false
+        val lower = url.lowercase()
+        if (lower.contains("default_artist") || lower.contains("/artist//") || lower.contains("d41d8cd98f00b204e9800998ecf8427e")) return false
+        if (lower.contains("bts") || lower.contains("bangtan")) return false
+        return true
+    }
+
+    fun upgradeToHdArtwork(url: String): String {
+        var hd = url
+        if (hd.contains("500x500")) {
+            hd = hd.replace("500x500", "1000x1000")
+        }
+        if (hd.contains("100x100bb")) {
+            hd = hd.replace("100x100bb", "1000x1000bb")
+        }
+        return hd
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     currentTrack: Track?,
@@ -175,6 +230,7 @@ fun HomeScreen(
     top5DailyTracks: List<Track> = emptyList(),
     quickPicks: List<Track> = emptyList(),
     freshFinds: List<Track> = emptyList(),
+    albumsForYou: List<EditorialAlbum> = emptyList(),
     selectedArtist: String = "Arijit Singh",
     userSelectedArtists: Set<String> = emptySet(),
     userGenres: List<String> = emptyList(),
@@ -188,6 +244,9 @@ fun HomeScreen(
     onSearchClick: () -> Unit = {},
     onProfileClick: () -> Unit = {},
     onRefreshClick: () -> Unit = {},
+    isRefreshingHome: Boolean = false,
+    onRefreshHome: () -> Unit = {},
+    heroRefreshKey: Int = 0,
     onTrackClick: (Track, List<Track>) -> Unit = { _, _ -> },
     onPlayTracks: (List<Track>, Boolean) -> Unit = { _, _ -> },
     onOpenArtistDetail: (String, Boolean) -> Unit = { _, _ -> },
@@ -233,16 +292,24 @@ fun HomeScreen(
 
     // Dynamic spotlight candidate artists: verified catalog blended with live trending artists
     val spotlightCandidates = remember(trendingTracks) {
-        val catalog = ArtistRepository.verifiedCatalog
+        val catalog = ArtistRepository.verifiedCatalog.map { summary ->
+            if (!ArtistRepository.isValidArtistImageUrl(summary.imageUrl)) {
+                val fallbackTrack = trendingTracks.firstOrNull { it.artist.contains(summary.name, ignoreCase = true) && it.artworkUrl.isNotBlank() }
+                summary.copy(imageUrl = fallbackTrack?.artworkUrl ?: summary.imageUrl)
+            } else summary
+        }
         val dynamicNames = trendingTracks.map { it.artist }.distinct().take(6)
         val dynamicSummaries = dynamicNames.mapNotNull { artistName ->
-            val track = trendingTracks.firstOrNull { it.artist == artistName }
-            if (track != null) {
+            val track = trendingTracks.firstOrNull { it.artist == artistName && it.artworkUrl.isNotBlank() }
+            val summary = ArtistRepository.findVerifiedSummary(artistName)
+            val pic = summary?.imageUrl?.takeIf { ArtistRepository.isValidArtistImageUrl(it) }
+                ?: track?.artworkUrl
+            if (pic != null) {
                 ArtistSummary(
                     name = artistName,
-                    imageUrl = track.artworkUrl,
-                    genre = "Trending Artist",
-                    topTrackTitle = track.title
+                    imageUrl = pic,
+                    genre = summary?.genre ?: "Trending Artist",
+                    topTrackTitle = summary?.topTrackTitle?.ifBlank { null } ?: track?.title ?: "Popular Hits"
                 )
             } else null
         }
@@ -263,42 +330,52 @@ fun HomeScreen(
         }
     }
 
-    // 24-Hour rotating famous song poster for Infinite Radio
+    // Dynamic Vybe Flow Hero Artwork Selector (User's real taste + Curated iconic pool, zero BTS)
     val context = LocalContext.current
-    val dailyHeroPosterUrl = remember(allTracks, top5DailyTracks, trendingTracks) {
-        val prefs = context.getSharedPreferences("vybe_infinite_radio_hero", Context.MODE_PRIVATE)
-        val todayStr = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            try {
-                LocalDate.now().toString()
-            } catch (e: Exception) {
-                SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+    val dailyHeroPosterUrl = remember(likedTracks, artistTracks, top5DailyTracks, trendingTracks, heroRefreshKey) {
+        val userTasteCovers = mutableListOf<String>()
+
+        likedTracks.forEach { track ->
+            if (VybeFlowHeroPosters.isValidHeroArtwork(track.artworkUrl) && !track.artist.contains("bts", true) && !track.title.contains("bts", true)) {
+                userTasteCovers.add(VybeFlowHeroPosters.upgradeToHdArtwork(track.artworkUrl))
             }
-        } else {
-            SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+        }
+        artistTracks.forEach { track ->
+            if (VybeFlowHeroPosters.isValidHeroArtwork(track.artworkUrl) && !track.artist.contains("bts", true) && !track.title.contains("bts", true)) {
+                userTasteCovers.add(VybeFlowHeroPosters.upgradeToHdArtwork(track.artworkUrl))
+            }
+        }
+        top5DailyTracks.forEach { track ->
+            if (VybeFlowHeroPosters.isValidHeroArtwork(track.artworkUrl) && !track.artist.contains("bts", true) && !track.title.contains("bts", true)) {
+                userTasteCovers.add(VybeFlowHeroPosters.upgradeToHdArtwork(track.artworkUrl))
+            }
+        }
+        trendingTracks.forEach { track ->
+            if (VybeFlowHeroPosters.isValidHeroArtwork(track.artworkUrl) && !track.artist.contains("bts", true) && !track.title.contains("bts", true)) {
+                userTasteCovers.add(VybeFlowHeroPosters.upgradeToHdArtwork(track.artworkUrl))
+            }
         }
 
-        val cachedDate = prefs.getString("poster_date", null)
-        val cachedUrl = prefs.getString("poster_url", null)
-
-        if (!cachedUrl.isNullOrEmpty() && cachedDate == todayStr) {
-            if (cachedUrl.contains("500x500")) cachedUrl.replace("500x500", "1000x1000") else cachedUrl
+        val pool = if (userTasteCovers.isNotEmpty()) {
+            (userTasteCovers.distinct().shuffled() + VybeFlowHeroPosters.CURATED_ICONIC_POSTERS)
         } else {
-            // Pick one high-resolution poster from top famous/trending tracks feed
-            val candidateTrack = top5DailyTracks.firstOrNull { it.artworkUrl.isNotBlank() }
-                ?: trendingTracks.firstOrNull { it.artworkUrl.isNotBlank() }
-                ?: allTracks.firstOrNull { it.artworkUrl.isNotBlank() }
-            var chosenUrl = candidateTrack?.artworkUrl?.ifEmpty { null }
-                ?: "https://c.saavncdn.com/871/Brahmastra-Original-Motion-Picture-Soundtrack-Hindi-2022-20221006155213-1000x1000.jpg"
-            if (chosenUrl.contains("500x500")) {
-                chosenUrl = chosenUrl.replace("500x500", "1000x1000")
-            }
-
-            prefs.edit()
-                .putString("poster_date", todayStr)
-                .putString("poster_url", chosenUrl)
-                .apply()
-            chosenUrl
+            VybeFlowHeroPosters.CURATED_ICONIC_POSTERS
         }
+
+        val chosenIndex = if (heroRefreshKey > 0) {
+            heroRefreshKey % pool.size
+        } else {
+            val prefs = context.getSharedPreferences("vybe_flow_hero", Context.MODE_PRIVATE)
+            // Clear any stale cached BTS poster url
+            if (prefs.getString("poster_url", "").orEmpty().lowercase().contains("bts")) {
+                prefs.edit().remove("poster_url").apply()
+            }
+            val launchCount = prefs.getInt("launch_rotation_counter", 0)
+            prefs.edit().putInt("launch_rotation_counter", launchCount + 1).apply()
+            launchCount % pool.size
+        }
+
+        pool[chosenIndex.coerceIn(0, pool.size - 1)]
     }
 
     // Top 5 tracks (mapped to best album versions from allTracks)
@@ -343,8 +420,12 @@ fun HomeScreen(
         for (artistName in userArtistsList.take(3)) {
             val matchingTracks = allTracks.filter { it.artist.contains(artistName, ignoreCase = true) }
             val summary = ArtistRepository.findVerifiedSummary(artistName)
-            val artUrl = summary?.imageUrl?.ifBlank { null }
-                ?: matchingTracks.firstOrNull()?.artworkUrl
+            val validSummaryImg = summary?.imageUrl?.takeIf { ArtistRepository.isValidArtistImageUrl(it) }
+            val topTrackCover = matchingTracks.firstOrNull { it.artworkUrl.isNotBlank() }?.artworkUrl
+                ?: allTracks.firstOrNull { it.artist.contains(artistName, ignoreCase = true) && it.artworkUrl.isNotBlank() }?.artworkUrl
+                ?: allTracks.firstOrNull { it.artworkUrl.isNotBlank() }?.artworkUrl
+            val artUrl = validSummaryImg
+                ?: topTrackCover
                 ?: "https://c.saavncdn.com/artists/The_Weeknd_002_20241003071400_500x500.jpg"
 
             generated.add(
@@ -381,17 +462,24 @@ fun HomeScreen(
     }
 
     // 5. Dynamic Artists for you (prioritizing user's chosen artists)
-    val homeArtistsForYou = remember(userSelectedArtists) {
+    val homeArtistsForYou = remember(userSelectedArtists, allTracks) {
         val userArtistsList = userSelectedArtists.toList()
         val list = mutableListOf<SpotlightArtist>()
         for (artistName in userArtistsList) {
             val summary = ArtistRepository.findVerifiedSummary(artistName)
-            val pic = summary?.imageUrl?.ifBlank { null } ?: "https://c.saavncdn.com/artists/The_Weeknd_002_20241003071400_500x500.jpg"
-            list.add(SpotlightArtist(name = artistName, imageUrl = pic, genre = summary?.genre ?: "Contemporary Pop"))
+            val validPic = summary?.imageUrl?.takeIf { ArtistRepository.isValidArtistImageUrl(it) }
+                ?: allTracks.firstOrNull { it.artist.contains(artistName, ignoreCase = true) && it.artworkUrl.isNotBlank() }?.artworkUrl
+                ?: allTracks.firstOrNull { it.artworkUrl.isNotBlank() }?.artworkUrl
+                ?: "https://c.saavncdn.com/artists/The_Weeknd_002_20241003071400_500x500.jpg"
+            list.add(SpotlightArtist(name = artistName, imageUrl = validPic, genre = summary?.genre ?: "Contemporary Pop"))
         }
         for (sa in spotlightArtists) {
             if (list.none { it.name.equals(sa.name, ignoreCase = true) }) {
-                list.add(sa)
+                val validPic = sa.imageUrl.takeIf { ArtistRepository.isValidArtistImageUrl(it) }
+                    ?: allTracks.firstOrNull { it.artist.contains(sa.name, ignoreCase = true) && it.artworkUrl.isNotBlank() }?.artworkUrl
+                    ?: allTracks.firstOrNull { it.artworkUrl.isNotBlank() }?.artworkUrl
+                    ?: sa.imageUrl
+                list.add(sa.copy(imageUrl = validPic))
             }
         }
         list.take(8)
@@ -407,65 +495,79 @@ fun HomeScreen(
         if (likedTracks.isNotEmpty()) likedTracks.shuffled(java.util.Random(42)).take(8) else emptyList()
     }
 
+    var showMoreAlbumsSheet by rememberSaveable { mutableStateOf(false) }
+
     // 8. Albums for you items
-    val albums = remember(allTracks) {
-        listOf(
-            EditorialAlbum(
-                title = "Brahmastra",
-                subtitle = "Pritam • 2022",
-                artist = "Pritam",
-                year = "2022",
-                artworkUrl = "https://c.saavncdn.com/871/Brahmastra-Original-Motion-Picture-Soundtrack-Hindi-2022-20221006155213-500x500.jpg",
-                sampleTrack = allTracks.firstOrNull { it.album.contains("Brahmastra", ignoreCase = true) } ?: allTracks.first()
-            ),
-            EditorialAlbum(
-                title = "G.O.A.T.",
-                subtitle = "Diljit Dosanjh • 2020",
-                artist = "Diljit Dosanjh",
-                year = "2020",
-                browseId = "MPREb_grVglC0todv",
-                artworkUrl = "https://c.saavncdn.com/597/G-O-A-T-Punjabi-2020-20240708055140-500x500.jpg",
-                sampleTrack = allTracks.firstOrNull { it.album.contains("G.O.A.T", ignoreCase = true) } ?: allTracks.getOrElse(1) { allTracks.first() }
-            ),
-            EditorialAlbum(
-                title = "Bad Newz",
-                subtitle = "Karan Aujla • 2024",
-                artist = "Karan Aujla",
-                year = "2024",
-                artworkUrl = "https://c.saavncdn.com/992/Bad-Newz-Hindi-2024-20250730113701-500x500.jpg",
-                sampleTrack = allTracks.firstOrNull { it.album.contains("Bad Newz", ignoreCase = true) } ?: allTracks.getOrElse(2) { allTracks.first() }
-            ),
-            EditorialAlbum(
-                title = "Winning Speech",
-                subtitle = "Karan Aujla • 2024",
-                artist = "Karan Aujla",
-                year = "2024",
-                artworkUrl = "https://c.saavncdn.com/089/Winning-Speech-Punjabi-2024-20260626013220-500x500.jpg",
-                sampleTrack = allTracks.firstOrNull { it.album.contains("Winning", ignoreCase = true) } ?: allTracks.getOrElse(3) { allTracks.first() }
-            ),
-            EditorialAlbum(
-                title = "MoonChild Era",
-                subtitle = "Diljit Dosanjh • 2021",
-                artist = "Diljit Dosanjh",
-                year = "2021",
-                browseId = "MPREb_hv8LEmvUqnE",
-                artworkUrl = "https://c.saavncdn.com/209/MoonChild-Era-Punjabi-2021-20240715073449-500x500.jpg",
-                sampleTrack = allTracks.firstOrNull { it.album.contains("MoonChild", ignoreCase = true) } ?: allTracks.getOrElse(4) { allTracks.first() }
-            ),
-            EditorialAlbum(
-                title = "Aashiqui 2",
-                subtitle = "Mithoon • 2013",
-                artist = "Mithoon",
-                year = "2013",
-                artworkUrl = "https://c.saavncdn.com/430/Aashiqui-2-Hindi-2013-500x500.jpg",
-                sampleTrack = allTracks.firstOrNull { it.album.contains("Aashiqui", ignoreCase = true) } ?: allTracks.first()
+    val albums = remember(allTracks, albumsForYou) {
+        if (albumsForYou.isNotEmpty()) {
+            albumsForYou
+        } else {
+            listOf(
+                EditorialAlbum(
+                    title = "Brahmastra",
+                    subtitle = "Pritam • 2022",
+                    artist = "Pritam",
+                    year = "2022",
+                    artworkUrl = "https://c.saavncdn.com/871/Brahmastra-Original-Motion-Picture-Soundtrack-Hindi-2022-20221006155213-500x500.jpg",
+                    sampleTrack = allTracks.firstOrNull { it.album.contains("Brahmastra", ignoreCase = true) } ?: allTracks.first()
+                ),
+                EditorialAlbum(
+                    title = "G.O.A.T.",
+                    subtitle = "Diljit Dosanjh • 2020",
+                    artist = "Diljit Dosanjh",
+                    year = "2020",
+                    browseId = "MPREb_grVglC0todv",
+                    artworkUrl = "https://c.saavncdn.com/597/G-O-A-T-Punjabi-2020-20240708055140-500x500.jpg",
+                    sampleTrack = allTracks.firstOrNull { it.album.contains("G.O.A.T", ignoreCase = true) } ?: allTracks.getOrElse(1) { allTracks.first() }
+                ),
+                EditorialAlbum(
+                    title = "Bad Newz",
+                    subtitle = "Karan Aujla • 2024",
+                    artist = "Karan Aujla",
+                    year = "2024",
+                    artworkUrl = "https://c.saavncdn.com/992/Bad-Newz-Hindi-2024-20250730113701-500x500.jpg",
+                    sampleTrack = allTracks.firstOrNull { it.album.contains("Bad Newz", ignoreCase = true) } ?: allTracks.getOrElse(2) { allTracks.first() }
+                ),
+                EditorialAlbum(
+                    title = "Winning Speech",
+                    subtitle = "Karan Aujla • 2024",
+                    artist = "Karan Aujla",
+                    year = "2024",
+                    artworkUrl = "https://c.saavncdn.com/089/Winning-Speech-Punjabi-2024-20260626013220-500x500.jpg",
+                    sampleTrack = allTracks.firstOrNull { it.album.contains("Winning", ignoreCase = true) } ?: allTracks.getOrElse(3) { allTracks.first() }
+                ),
+                EditorialAlbum(
+                    title = "MoonChild Era",
+                    subtitle = "Diljit Dosanjh • 2021",
+                    artist = "Diljit Dosanjh",
+                    year = "2021",
+                    browseId = "MPREb_hv8LEmvUqnE",
+                    artworkUrl = "https://c.saavncdn.com/209/MoonChild-Era-Punjabi-2021-20240715073449-500x500.jpg",
+                    sampleTrack = allTracks.firstOrNull { it.album.contains("MoonChild", ignoreCase = true) } ?: allTracks.getOrElse(4) { allTracks.first() }
+                ),
+                EditorialAlbum(
+                    title = "Aashiqui 2",
+                    subtitle = "Mithoon • 2013",
+                    artist = "Mithoon",
+                    year = "2013",
+                    artworkUrl = "https://c.saavncdn.com/430/Aashiqui-2-Hindi-2013-500x500.jpg",
+                    sampleTrack = allTracks.firstOrNull { it.album.contains("Aashiqui", ignoreCase = true) } ?: allTracks.first()
+                )
             )
-        )
+        }
     }
 
     // 9. New releases tracks
     val newReleasesTracks = remember(allTracks) {
         allTracks.takeLast(8).ifEmpty { allTracks }
+    }
+
+    if (allTracks.isEmpty() && isHomeLoading) {
+        HomeScreenSkeleton(
+            contentPadding = contentPadding,
+            modifier = modifier
+        )
+        return
     }
 
     Box(
@@ -475,6 +577,36 @@ fun HomeScreen(
     ) {
         // ── Scrolling Content (Passes smoothly underneath Crystal Header) ────
         val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+
+        // Pull-to-refresh setup
+        val pullState = rememberPullToRefreshState()
+        val hapticPtr = LocalHapticFeedback.current
+        var hapticFired by remember { mutableStateOf(false) }
+        LaunchedEffect(pullState.distanceFraction) {
+            if (pullState.distanceFraction >= 1f && !hapticFired) {
+                hapticPtr.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                hapticFired = true
+            }
+            if (pullState.distanceFraction < 0.5f) hapticFired = false
+        }
+
+        PullToRefreshBox(
+            isRefreshing = isRefreshingHome,
+            onRefresh = onRefreshHome,
+            state = pullState,
+            modifier = Modifier.fillMaxSize(),
+            indicator = {
+                PullToRefreshDefaults.Indicator(
+                    state = pullState,
+                    isRefreshing = isRefreshingHome,
+                    containerColor = Color(0xFF1E1E1E),
+                    color = Color.White,
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = statusBarTop + 64.dp)
+                )
+            }
+        ) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(
@@ -482,23 +614,6 @@ fun HomeScreen(
                 bottom = contentPadding.calculateBottomPadding()
             )
         ) {
-
-            if (isHomeLoading) {
-                item {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 12.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(24.dp),
-                            color = Color.White.copy(alpha = 0.7f),
-                            strokeWidth = 2.dp
-                        )
-                    }
-                }
-            }
 
             // ── Dynamic Greeting & Date Row ─────────────────────────
             item {
@@ -530,9 +645,9 @@ fun HomeScreen(
                 }
             }
 
-            // ── Hero Card: Infinite Radio ──────────────────────────────────
+            // ── Hero Card: Vybe Flow ──────────────────────────────────────
             item {
-                InfiniteRadioHeroCard(
+                VybeFlowHeroCard(
                     artworkUrl = dailyHeroPosterUrl,
                     onPlayClick = {
                         if (allTracks.isNotEmpty()) {
@@ -788,9 +903,8 @@ fun HomeScreen(
                     title = "Albums for you",
                     subtitle = "Original Master Studio Artwork",
                     showMorePill = true,
-                    onMoreClick = { onSearchClick() }
+                    onMoreClick = { showMoreAlbumsSheet = true }
                 )
-                val albumSampleTracks = remember(albums) { albums.map { it.sampleTrack } }
                 LazyRow(
                     contentPadding = PaddingValues(horizontal = 16.dp),
                     horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -875,6 +989,7 @@ fun HomeScreen(
                 Spacer(modifier = Modifier.height(160.dp))
             }
         }
+        } // end PullToRefreshBox
 
         // ── Single Source-of-Truth Crystal-Clear Zero-Blur Header ──
         VybeCrystalHeader(
@@ -885,20 +1000,88 @@ fun HomeScreen(
             modifier = Modifier.align(Alignment.TopCenter)
         )
     }
+
+    if (showMoreAlbumsSheet) {
+        val albumSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ModalBottomSheet(
+            onDismissRequest = { showMoreAlbumsSheet = false },
+            sheetState = albumSheetState,
+            containerColor = Color(0xFF141414),
+            scrimColor = Color.Black.copy(alpha = 0.65f),
+            shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+            dragHandle = {
+                Box(
+                    modifier = Modifier
+                        .padding(vertical = 12.dp)
+                        .width(36.dp)
+                        .height(4.dp)
+                        .background(Color.White.copy(alpha = 0.2f), RoundedCornerShape(2.dp))
+                )
+            }
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 18.dp)
+                    .padding(bottom = 32.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(
+                            text = "Albums for you",
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                        Text(
+                            text = "Original Master Studio Artwork",
+                            fontSize = 13.sp,
+                            color = Color.White.copy(alpha = 0.6f)
+                        )
+                    }
+                }
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(2),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 540.dp)
+                ) {
+                    items(albums, key = { "more_alb_${it.title}" }) { album ->
+                        EditorialCard(
+                            artworkUrl = album.artworkUrl,
+                            title = album.title,
+                            subtitle = album.subtitle,
+                            showPlayOverlay = false,
+                            fixedWidth = null,
+                            onClick = {
+                                showMoreAlbumsSheet = false
+                                onAlbumClick(album.browseId, album.title, album.artist, album.artworkUrl, album.year)
+                            }
+                        )
+                    }
+                }
+            }
+        }
+    }
 }
 
-// ── 'INFINITE RADIO' Hero Editorial Card ───────────────────────────────────────
+// ── 'VYBE FLOW' Hero Editorial Card ─────────────────────────────────────────
 
 @Composable
-private fun InfiniteRadioHeroCard(
+private fun VybeFlowHeroCard(
     artworkUrl: String,
     onPlayClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val heroCardShape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp, bottomStart = 0.dp, bottomEnd = 0.dp)
-    val desaturatedMatrix = remember {
-        ColorMatrix().apply { setToSaturation(0.25f) }
-    }
+    val heroCardShape = RoundedCornerShape(24.dp)
 
     Box(
         modifier = modifier
@@ -907,40 +1090,40 @@ private fun InfiniteRadioHeroCard(
             .clip(heroCardShape)
             .background(Color.Black)
     ) {
-        // 1. Atmospheric desaturated low-intensity backdrop
+        // 1. Atmospheric, rich artwork backdrop (clearly visible & moody)
         AsyncImage(
             model = ImageRequest.Builder(LocalContext.current)
                 .data(artworkUrl)
                 .crossfade(true)
                 .build(),
-            contentDescription = "Infinite Radio Poster",
+            contentDescription = "Vybe Flow Poster",
             contentScale = ContentScale.Crop,
-            alpha = 0.28f,
-            colorFilter = ColorFilter.colorMatrix(desaturatedMatrix),
+            alpha = 0.82f,
             modifier = Modifier.fillMaxSize()
         )
 
-        // 2. Vertical melt scrim: fades 100% seamlessly into pure #000000 AMOLED black
+        // 2. Soft bottom scrim maxing around 0.68f (keeps artwork visible, never crushed to black)
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
-                        0.0f to Color.Black.copy(alpha = 0.25f),
-                        0.45f to Color.Black.copy(alpha = 0.55f),
-                        0.78f to Color.Black.copy(alpha = 0.92f),
-                        1.0f to Color.Black
+                        0.0f to Color.Black.copy(alpha = 0.12f),
+                        0.48f to Color.Black.copy(alpha = 0.36f),
+                        1.0f to Color.Black.copy(alpha = 0.68f)
                     )
                 )
         )
 
-        // 3. Soft left-to-right readability vignette
+        // 3. Soft left-to-right readability vignette maxing around 0.62f
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
                     Brush.horizontalGradient(
-                        listOf(Color.Black.copy(alpha = 0.45f), Color.Transparent)
+                        0.0f to Color.Black.copy(alpha = 0.62f),
+                        0.55f to Color.Black.copy(alpha = 0.28f),
+                        1.0f to Color.Transparent
                     )
                 )
         )
@@ -957,7 +1140,7 @@ private fun InfiniteRadioHeroCard(
             Row(
                 modifier = Modifier
                     .clip(RoundedCornerShape(50))
-                    .background(Color.White.copy(alpha = 0.11f))
+                    .background(Color.White.copy(alpha = 0.14f))
                     .padding(horizontal = 12.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -965,7 +1148,7 @@ private fun InfiniteRadioHeroCard(
                 Icon(
                     imageVector = Icons.Rounded.AutoAwesome,
                     contentDescription = null,
-                    tint = Color(0xFFBDBDBD),
+                    tint = Color.White.copy(alpha = 0.88f),
                     modifier = Modifier.size(13.dp)
                 )
                 Text(
@@ -973,7 +1156,7 @@ private fun InfiniteRadioHeroCard(
                     fontSize = 11.sp,
                     fontWeight = FontWeight.SemiBold,
                     letterSpacing = 1.2.sp,
-                    color = Color(0xFFC8C8C8)
+                    color = Color.White.copy(alpha = 0.90f)
                 )
             }
 
@@ -981,7 +1164,7 @@ private fun InfiniteRadioHeroCard(
 
             // Title (12.dp below badge): Wide geometric display styling
             Text(
-                text = "Infinite Radio",
+                text = "Vybe Flow",
                 style = MaterialTheme.typography.headlineLarge.copy(
                     fontFamily = VybeDisplayFontFamily,
                     fontSize = 28.sp,
@@ -997,10 +1180,10 @@ private fun InfiniteRadioHeroCard(
 
             // Subtitle (8.dp below title)
             Text(
-                text = "An endless station shaped by your listening",
+                text = "An endless stream shaped by your taste",
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Normal,
-                color = Color(0xFFA8A8A8),
+                color = Color(0xFFD6D6D6),
                 letterSpacing = 0.1.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -1008,12 +1191,12 @@ private fun InfiniteRadioHeroCard(
 
             Spacer(modifier = Modifier.height(22.dp))
 
-            // Compact Muted Silver Play Pill
+            // Pure Crisp White Play Pill (#FFFFFF background with pure Color.Black icon & text)
             Box(
                 modifier = Modifier
                     .height(44.dp)
                     .clip(CircleShape)
-                    .background(Color(0xFFBDBDBD))
+                    .background(Color.White)
                     .bouncyClickable(pressedScale = 0.92f, onClick = onPlayClick)
                     .padding(horizontal = 24.dp),
                 contentAlignment = Alignment.Center
@@ -1025,14 +1208,14 @@ private fun InfiniteRadioHeroCard(
                     Icon(
                         imageVector = Icons.Filled.PlayArrow,
                         contentDescription = "Play",
-                        tint = Color(0xFF0F0F0F),
+                        tint = Color.Black,
                         modifier = Modifier.size(16.dp)
                     )
                     Text(
                         text = "Play",
                         fontSize = 15.sp,
                         fontWeight = FontWeight.SemiBold,
-                        color = Color(0xFF0F0F0F)
+                        color = Color.Black
                     )
                 }
             }
@@ -1100,7 +1283,7 @@ private fun SectionHeader(
                     modifier = Modifier
                         .size(40.dp)
                         .clip(CircleShape)
-                        .background(Color(0xFF1A1A1C))
+                        .background(Color(0xFF1A1A1A))
                         .bouncyClickable(pressedScale = 0.88f) { onShuffleClick?.invoke() },
                     contentAlignment = Alignment.Center
                 ) {
@@ -1119,7 +1302,7 @@ private fun SectionHeader(
                     modifier = Modifier
                         .height(36.dp)
                         .clip(RoundedCornerShape(50))
-                        .background(Color(0xFF1A1A1C))
+                        .background(Color(0xFF1A1A1A))
                         .bouncyClickable(pressedScale = 0.90f) { onPlayAllClick?.invoke() }
                         .padding(horizontal = 14.dp),
                     contentAlignment = Alignment.Center
@@ -1150,7 +1333,7 @@ private fun SectionHeader(
                     modifier = Modifier
                         .height(36.dp)
                         .clip(RoundedCornerShape(50))
-                        .background(Color(0xFF1A1A1C))
+                        .background(Color(0xFF1A1A1A))
                         .bouncyClickable(pressedScale = 0.90f) { onShuffleClick?.invoke() }
                         .padding(horizontal = 14.dp),
                     contentAlignment = Alignment.Center
@@ -1181,7 +1364,7 @@ private fun SectionHeader(
                     modifier = Modifier
                         .height(36.dp)
                         .clip(RoundedCornerShape(50))
-                        .background(Color(0xFF1A1A1C))
+                        .background(Color(0xFF1A1A1A))
                         .bouncyClickable(pressedScale = 0.90f) { onMoreClick?.invoke() }
                         .padding(horizontal = 14.dp),
                     contentAlignment = Alignment.Center
@@ -1221,17 +1404,18 @@ private fun EditorialCard(
     isPlaying: Boolean = false,
     onClick: () -> Unit,
     onPlayOverlayClick: (() -> Unit)? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    fixedWidth: androidx.compose.ui.unit.Dp? = 164.dp
 ) {
     Column(
         modifier = modifier
-            .width(164.dp)
+            .then(if (fixedWidth != null) Modifier.width(fixedWidth) else Modifier.fillMaxWidth())
             .bouncyClickable(pressedScale = 0.96f, onClick = onClick)
     ) {
-        // 164.dp rounded square artwork
+        // Rounded square artwork
         Box(
             modifier = Modifier
-                .size(164.dp)
+                .then(if (fixedWidth != null) Modifier.size(fixedWidth) else Modifier.fillMaxWidth().aspectRatio(1f))
                 .shadow(
                     elevation = 12.dp,
                     shape = RoundedCornerShape(18.dp),
@@ -1239,7 +1423,7 @@ private fun EditorialCard(
                     spotColor = Color.Black
                 )
                 .clip(RoundedCornerShape(18.dp))
-                .background(Color(0xFF18181C))
+                .background(Color(0xFF181818))
         ) {
             AsyncImage(
                 model = ImageRequest.Builder(LocalContext.current)

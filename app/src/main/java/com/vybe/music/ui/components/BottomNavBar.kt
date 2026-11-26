@@ -376,7 +376,18 @@ fun BottomNavBar(
                             },
                         contentAlignment = Alignment.Center
                     ) {
-                        NavHomeIcon(isSelected = true, modifier = Modifier.size(26.dp))
+                        Crossfade(
+                            targetState = selectedTab,
+                            animationSpec = tween(durationMillis = 200),
+                            label = "collapsed_active_tab_icon"
+                        ) { tab ->
+                            when (tab) {
+                                NavTab.HOME -> NavHomeIcon(isSelected = true, modifier = Modifier.size(26.dp))
+                                NavTab.STATS -> NavStatsIcon(isSelected = true, modifier = Modifier.size(26.dp))
+                                NavTab.PLAYLISTS -> NavPlaylistsIcon(isSelected = true, modifier = Modifier.size(26.dp))
+                                else -> NavHomeIcon(isSelected = true, modifier = Modifier.size(26.dp))
+                            }
+                        }
                     }
                 } else {
                     // ── State A: Expanded Floating 3-Tab Nav Capsule with Sliding Frosted Pill ──

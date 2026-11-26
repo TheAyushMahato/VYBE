@@ -22,6 +22,7 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -37,6 +38,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.vybe.music.model.ArtistSummary
+import com.vybe.music.data.repository.ArtistRepository
 
 /**
  * Reusable Artist Spotlight Card matching a sleek, borderless, high-contrast Apple/LastWave aesthetic.
@@ -58,6 +60,16 @@ fun ArtistSpotlightCard(
     onViewArtistClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val validImageUrl = remember(imageUrl, artistName) {
+        if (ArtistRepository.isValidArtistImageUrl(imageUrl)) {
+            imageUrl
+        } else {
+            val verified = ArtistRepository.findVerifiedSummary(artistName)?.imageUrl
+            if (ArtistRepository.isValidArtistImageUrl(verified)) verified!!
+            else "https://c.saavncdn.com/artists/The_Weeknd_002_20241003071400_500x500.jpg"
+        }
+    }
+
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -74,7 +86,7 @@ fun ArtistSpotlightCard(
         ) {
             AsyncImage(
                 model = ImageRequest.Builder(LocalContext.current)
-                    .data(imageUrl)
+                    .data(validImageUrl)
                     .crossfade(true)
                     .build(),
                 contentDescription = null,
@@ -138,11 +150,11 @@ fun ArtistSpotlightCard(
                     modifier = Modifier
                         .size(82.dp)
                         .clip(CircleShape)
-                        .background(Color(0xFF1E1E22))
+                        .background(Color(0xFF1E1E1E))
                 ) {
                     AsyncImage(
                         model = ImageRequest.Builder(LocalContext.current)
-                            .data(imageUrl)
+                            .data(validImageUrl)
                             .crossfade(true)
                             .build(),
                         contentDescription = artistName,

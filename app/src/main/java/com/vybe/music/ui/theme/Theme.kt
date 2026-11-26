@@ -26,7 +26,8 @@ private val DarkColorScheme = darkColorScheme(
     onSurface = PureWhite,
     surfaceVariant = FrostedDarkSurface,
     onSurfaceVariant = TextSecondary,
-    outline = TranslucentGlassHighlight
+    outline = TranslucentGlassHighlight,
+    surfaceTint = androidx.compose.ui.graphics.Color.Transparent
 )
 
 @Composable

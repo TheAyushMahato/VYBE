@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CloudQueue
 import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -37,6 +38,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
+import com.vybe.music.BuildConfig
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -115,13 +117,6 @@ fun SettingsScreen(
     }
 
     when (activeSubScreen) {
-        SettingsSubScreen.APPEARANCE_VISUALS -> {
-            AppearanceVisualsScreen(
-                onBackClick = { activeSubScreen = SettingsSubScreen.NONE },
-                contentPadding = contentPadding
-            )
-            return
-        }
         SettingsSubScreen.AUDIO_PLAYBACK -> {
             AudioPlaybackScreen(
                 currentQuality = streamingQuality,
@@ -131,34 +126,17 @@ fun SettingsScreen(
             )
             return
         }
-        SettingsSubScreen.LIBRARY_CONTENT -> {
-            LibraryContentScreen(
-                onNavigateToHomeSections = { activeSubScreen = SettingsSubScreen.HOME_SECTIONS },
-                onNavigateToExcludedSongs = { activeSubScreen = SettingsSubScreen.EXCLUDED_SONGS },
-                onNavigateToMusicTaste = { viewModel.openTasteOnboarding() },
-                onCreatePlaylist = { name, tracks ->
-                    viewModel.createPlaylist(name)
-                },
+        SettingsSubScreen.STORAGE_DOWNLOADS -> {
+            DataStorageScreen(
+                storage = storage,
                 onBackClick = { activeSubScreen = SettingsSubScreen.NONE },
                 contentPadding = contentPadding
             )
             return
         }
-        SettingsSubScreen.HOME_SECTIONS -> {
-            HomeSectionsScreen(
-                onBackClick = { activeSubScreen = SettingsSubScreen.LIBRARY_CONTENT }
-            )
-            return
-        }
-        SettingsSubScreen.EXCLUDED_SONGS -> {
-            ExcludedSongsScreen(
-                onBackClick = { activeSubScreen = SettingsSubScreen.LIBRARY_CONTENT }
-            )
-            return
-        }
-        SettingsSubScreen.DATA_STORAGE -> {
-            DataStorageScreen(
-                storage = storage,
+        SettingsSubScreen.PERSONALIZATION -> {
+            PersonalizationScreen(
+                onNavigateToTaste = { viewModel.openTasteOnboarding() },
                 onResetStats = { viewModel.resetListeningStatistics() },
                 onBackClick = { activeSubScreen = SettingsSubScreen.NONE },
                 contentPadding = contentPadding
@@ -177,11 +155,7 @@ fun SettingsScreen(
 
     val handleBack = {
         if (activeSubScreen != SettingsSubScreen.NONE) {
-            if (activeSubScreen == SettingsSubScreen.HOME_SECTIONS || activeSubScreen == SettingsSubScreen.EXCLUDED_SONGS) {
-                activeSubScreen = SettingsSubScreen.LIBRARY_CONTENT
-            } else {
-                activeSubScreen = SettingsSubScreen.NONE
-            }
+            activeSubScreen = SettingsSubScreen.NONE
         } else {
             showAccountSyncScreen = false
             viewModel.closeAccountSync()
@@ -295,9 +269,9 @@ fun SettingsScreen(
                 Spacer(modifier = Modifier.height(22.dp))
             }
 
-            // ── Section 2: Playback & UI ──
+            // ── Section 2: Playback & Audio ──
             item {
-                SectionHeader(title = "Playback & UI")
+                SectionHeader(title = "Playback & Audio")
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -306,41 +280,21 @@ fun SettingsScreen(
                 ) {
                     SettingsOptionCard(
                         icon = Icons.Default.GraphicEq,
-                        title = "Audio & Playback",
-                        subtitle = "Quality, Equalizer, Clarity, Effects",
+                        title = "Audio Quality & Equalizer",
+                        subtitle = "Streaming quality, hardware equalizer & sound",
                         index = 0,
-                        total = 3,
+                        total = 1,
                         onClick = {
                             activeSubScreen = SettingsSubScreen.AUDIO_PLAYBACK
-                        }
-                    )
-                    SettingsOptionCard(
-                        icon = Icons.Default.Palette,
-                        title = "Appearance & Visuals",
-                        subtitle = "Theme, Icons, AMOLED, Accent colors",
-                        index = 1,
-                        total = 3,
-                        onClick = {
-                            activeSubScreen = SettingsSubScreen.APPEARANCE_VISUALS
-                        }
-                    )
-                    SettingsOptionCard(
-                        icon = Icons.AutoMirrored.Filled.QueueMusic,
-                        title = "Library & Content",
-                        subtitle = "Home sections, Excluded, File imports",
-                        index = 2,
-                        total = 3,
-                        onClick = {
-                            activeSubScreen = SettingsSubScreen.LIBRARY_CONTENT
                         }
                     )
                 }
                 Spacer(modifier = Modifier.height(22.dp))
             }
 
-            // ── Section 3: System & About ──
+            // ── Section 3: Storage & Personalization ──
             item {
-                SectionHeader(title = "System & About")
+                SectionHeader(title = "Storage & Personalization")
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -349,20 +303,43 @@ fun SettingsScreen(
                 ) {
                     SettingsOptionCard(
                         icon = Icons.Default.CloudQueue,
-                        title = "Data & Storage",
-                        subtitle = "Cache, Backup & Restore, Data wipe",
+                        title = "Storage & Downloads",
+                        subtitle = "Offline directory, Music/VYBE/, clear cache",
                         index = 0,
                         total = 2,
                         onClick = {
-                            activeSubScreen = SettingsSubScreen.DATA_STORAGE
+                            activeSubScreen = SettingsSubScreen.STORAGE_DOWNLOADS
                         }
                     )
                     SettingsOptionCard(
                         icon = Icons.Default.AutoAwesome,
-                        title = "About & System",
-                        subtitle = "Version 1.2.0 • Check updates, GitHub",
+                        title = "Personalization",
+                        subtitle = "Taste profile, favorite artists & statistics",
                         index = 1,
                         total = 2,
+                        onClick = {
+                            activeSubScreen = SettingsSubScreen.PERSONALIZATION
+                        }
+                    )
+                }
+                Spacer(modifier = Modifier.height(22.dp))
+            }
+
+            // ── Section 4: About VYBE ──
+            item {
+                SectionHeader(title = "About")
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(3.dp)
+                ) {
+                    SettingsOptionCard(
+                        icon = Icons.Default.Info,
+                        title = "About VYBE",
+                        subtitle = "v${BuildConfig.VERSION_NAME} • MIT License, GitHub",
+                        index = 0,
+                        total = 1,
                         onClick = {
                             activeSubScreen = SettingsSubScreen.ABOUT_SYSTEM
                         }
@@ -386,7 +363,7 @@ fun SettingsScreen(
         ModalBottomSheet(
             onDismissRequest = { showQualitySheet = false },
             sheetState = sheetState,
-            containerColor = Color(0xFF141417),
+            containerColor = Color(0xFF141414),
             scrimColor = Color.Black.copy(alpha = 0.65f),
             shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
         ) {
@@ -419,7 +396,7 @@ fun SettingsScreen(
                             .fillMaxWidth()
                             .padding(vertical = 5.dp)
                             .clip(RoundedCornerShape(18.dp))
-                            .background(if (isSelected) Color(0xFF222228) else Color(0xFF1A1A1E))
+                            .background(if (isSelected) Color(0xFF222222) else Color(0xFF1A1A1A))
                             .clickable {
                                 onQualitySelected(quality)
                                 showQualitySheet = false
@@ -464,7 +441,7 @@ fun SettingsScreen(
         ModalBottomSheet(
             onDismissRequest = { activeSheetTitle = null },
             sheetState = sheetState,
-            containerColor = Color(0xFF141417),
+            containerColor = Color(0xFF141414),
             scrimColor = Color.Black.copy(alpha = 0.65f),
             shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
         ) {
@@ -493,7 +470,7 @@ fun SettingsScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(CircleShape)
-                        .background(Color(0xFF26262C))
+                        .background(Color(0xFF262626))
                         .clickable { activeSheetTitle = null }
                         .padding(vertical = 14.dp),
                     contentAlignment = Alignment.Center

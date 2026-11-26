@@ -107,7 +107,7 @@ fun AccountCloudSyncScreen(
                 modifier = Modifier
                     .size(46.dp)
                     .clip(CircleShape)
-                    .background(Color(0xFF1A1A1D))
+                    .background(Color(0xFF1A1A1A))
                     .bouncyClickable(pressedScale = 0.90f, onClick = onBackClick),
                 contentAlignment = Alignment.Center
             ) {

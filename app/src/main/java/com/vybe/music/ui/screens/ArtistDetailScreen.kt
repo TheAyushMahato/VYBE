@@ -65,6 +65,7 @@ import com.vybe.music.model.ArtistAlbum
 import com.vybe.music.model.ArtistDetail
 import com.vybe.music.model.ArtistSummary
 import com.vybe.music.model.Track
+import com.vybe.music.ui.components.ArtistDetailSkeleton
 import com.vybe.music.ui.components.VybeTrackArtwork
 import com.vybe.music.ui.components.bouncyClickable
 
@@ -98,6 +99,14 @@ fun ArtistDetailScreen(
         derivedStateOf {
             listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 380
         }
+    }
+
+    if (artistDetail == null && isLoading) {
+        ArtistDetailSkeleton(
+            onBackClick = onBackClick,
+            contentPadding = contentPadding
+        )
+        return
     }
 
     Box(
@@ -523,7 +532,7 @@ fun ArtistDetailScreen(
                                     modifier = Modifier
                                         .size(156.dp)
                                         .clip(RoundedCornerShape(16.dp))
-                                        .background(Color(0xFF1E1E22))
+                                        .background(Color(0xFF1E1E1E))
                                 ) {
                                     AsyncImage(
                                         model = ImageRequest.Builder(context)
@@ -602,7 +611,7 @@ fun ArtistDetailScreen(
                                     modifier = Modifier
                                         .size(156.dp)
                                         .clip(RoundedCornerShape(16.dp))
-                                        .background(Color(0xFF1E1E22))
+                                        .background(Color(0xFF1E1E1E))
                                 ) {
                                     AsyncImage(
                                         model = ImageRequest.Builder(context)
@@ -685,7 +694,7 @@ fun ArtistDetailScreen(
                                     modifier = Modifier
                                         .size(104.dp)
                                         .clip(CircleShape)
-                                        .background(Color(0xFF1E1E22))
+                                        .background(Color(0xFF1E1E1E))
                                 )
                                 Spacer(modifier = Modifier.height(8.dp))
                                 Text(

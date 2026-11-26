@@ -1,11 +1,7 @@
 package com.vybe.music.ui.components
 
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Context
-import android.content.Intent
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -216,7 +212,7 @@ fun PlayerOverflowMenuSheet(
                 }
             }
 
-            // ── 2. 3-Column Quick Action Row ──
+            // ── 2. 2-Column Quick Action Row ──
             item {
                 Spacer(modifier = Modifier.height(10.dp))
                 Row(
@@ -225,25 +221,6 @@ fun PlayerOverflowMenuSheet(
                         .padding(horizontal = 16.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    // Share / Jam
-                    QuickActionCard(
-                        icon = Icons.Default.Share,
-                        label = "Share / Jam",
-                        modifier = Modifier.weight(1f),
-                        onClick = {
-                            val sendIntent = Intent(Intent.ACTION_SEND).apply {
-                                type = "text/plain"
-                                putExtra(Intent.EXTRA_SUBJECT, track.title)
-                                putExtra(
-                                    Intent.EXTRA_TEXT,
-                                    "Listen to \"${track.title}\" by ${track.artist} on VYBE\nhttps://youtube.com/watch?v=${track.id}"
-                                )
-                            }
-                            context.startActivity(Intent.createChooser(sendIntent, "Share Track"))
-                            onDismiss()
-                        }
-                    )
-
                     // Play next
                     QuickActionCard(
                         icon = Icons.AutoMirrored.Filled.PlaylistAdd,
@@ -267,7 +244,7 @@ fun PlayerOverflowMenuSheet(
                 }
             }
 
-            // ── 3. Grouped Material 3 Expressive Action List (13 Items) ──
+            // ── 3. Grouped Material 3 Expressive Action List (6 Items) ──
             item {
                 Spacer(modifier = Modifier.height(12.dp))
                 Column(
@@ -276,7 +253,7 @@ fun PlayerOverflowMenuSheet(
                         .padding(horizontal = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(3.dp)
                 ) {
-                    val totalItems = 13
+                    val totalItems = 6
 
                     // 1. Genre: {trackGenre}
                     ActionListRow(
@@ -293,21 +270,9 @@ fun PlayerOverflowMenuSheet(
                         }
                     )
 
-                    // 2. Watch Video
+                    // 2. Sleep timer
                     ActionListRow(
                         index = 1,
-                        total = totalItems,
-                        icon = Icons.Default.SmartDisplay,
-                        label = "Watch Video",
-                        onClick = {
-                            onOpenVideo()
-                            onDismiss()
-                        }
-                    )
-
-                    // 3. Sleep timer
-                    ActionListRow(
-                        index = 2,
                         total = totalItems,
                         icon = Icons.Default.Bedtime,
                         label = "Sleep timer",
@@ -317,9 +282,9 @@ fun PlayerOverflowMenuSheet(
                         }
                     )
 
-                    // 4. Go to Artist ({artistName})
+                    // 3. Go to Artist ({artistName})
                     ActionListRow(
-                        index = 3,
+                        index = 2,
                         total = totalItems,
                         icon = Icons.Default.Person,
                         label = "Go to Artist (${track.artist})",
@@ -330,9 +295,9 @@ fun PlayerOverflowMenuSheet(
                         }
                     )
 
-                    // 5. Go to Album ({albumName})
+                    // 4. Go to Album ({albumName})
                     ActionListRow(
-                        index = 4,
+                        index = 3,
                         total = totalItems,
                         icon = Icons.Default.Album,
                         label = "Go to Album (${if (track.album.isNotBlank()) track.album else track.title})",
@@ -345,9 +310,9 @@ fun PlayerOverflowMenuSheet(
                         }
                     )
 
-                    // 6. Download (Hi-Res)
+                    // 5. Download (Hi-Res)
                     ActionListRow(
-                        index = 5,
+                        index = 4,
                         total = totalItems,
                         icon = Icons.Default.Download,
                         label = "Download (Hi-Res)",
@@ -357,93 +322,14 @@ fun PlayerOverflowMenuSheet(
                         }
                     )
 
-                    // 7. Play
+                    // 6. Add to queue
                     ActionListRow(
-                        index = 6,
-                        total = totalItems,
-                        icon = Icons.Default.PlayArrow,
-                        label = "Play",
-                        onClick = {
-                            viewModel.seekTo(0L)
-                            viewModel.playTrack(track)
-                            onDismiss()
-                        }
-                    )
-
-                    // 8. Add to queue
-                    ActionListRow(
-                        index = 7,
+                        index = 5,
                         total = totalItems,
                         icon = Icons.AutoMirrored.Filled.QueueMusic,
                         label = "Add to queue",
                         onClick = {
                             viewModel.addToQueue(track)
-                            onDismiss()
-                        }
-                    )
-
-                    // 9. Chromecast
-                    ActionListRow(
-                        index = 8,
-                        total = totalItems,
-                        icon = Icons.Default.Cast,
-                        label = "Chromecast",
-                        onClick = {
-                            viewModel.showBanner("Scanning for Chromecast devices...")
-                            onDismiss()
-                        }
-                    )
-
-                    // 10. Copy link
-                    ActionListRow(
-                        index = 9,
-                        total = totalItems,
-                        icon = Icons.Default.Link,
-                        label = "Copy link",
-                        onClick = {
-                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            val clip = ClipData.newPlainText("Track URL", "https://youtube.com/watch?v=${track.id}")
-                            clipboard.setPrimaryClip(clip)
-                            viewModel.showBanner("Link copied to clipboard")
-                            onDismiss()
-                        }
-                    )
-
-                    // 11. Copy Song
-                    ActionListRow(
-                        index = 10,
-                        total = totalItems,
-                        icon = Icons.Default.ContentCopy,
-                        label = "Copy Song",
-                        onClick = {
-                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            val clip = ClipData.newPlainText("Track Name", "${track.title} - ${track.artist}")
-                            clipboard.setPrimaryClip(clip)
-                            viewModel.showBanner("Copied to clipboard")
-                            onDismiss()
-                        }
-                    )
-
-                    // 12. Details & Audio Specs
-                    ActionListRow(
-                        index = 11,
-                        total = totalItems,
-                        icon = Icons.Default.Info,
-                        label = "Details & Audio Specs",
-                        onClick = {
-                            onOpenAudioSpecs()
-                            onDismiss()
-                        }
-                    )
-
-                    // 13. Don't recommend again
-                    ActionListRow(
-                        index = 12,
-                        total = totalItems,
-                        icon = Icons.Default.ThumbDown,
-                        label = "Don't recommend again",
-                        onClick = {
-                            viewModel.dislikeTrack(track)
                             onDismiss()
                         }
                     )
@@ -1191,103 +1077,4 @@ fun DraggableSleepTimerBubble(
     }
 }
 
-/**
- * ── Details & Audio Specs Modal Dialog ──
- */
-@Composable
-fun AudioSpecsDialog(
-    show: Boolean,
-    onDismiss: () -> Unit,
-    track: Track,
-    audioFormatInfo: AudioTrackFormatInfo = AudioTrackFormatInfo(),
-    streamingQuality: AudioQuality = AudioQuality.MAX
-) {
-    if (!show) return
 
-    Dialog(onDismissRequest = onDismiss) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(28.dp))
-                .background(Color(0xFF141414))
-                .padding(22.dp)
-        ) {
-            Column {
-                Text(
-                    text = "Details & Audio Specs",
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "${track.title} • ${track.artist}",
-                    fontSize = 13.sp,
-                    color = Color(0xFF9E9E9E),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-
-                Spacer(modifier = Modifier.height(18.dp))
-
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(18.dp))
-                        .background(Color(0xFF1A1A1A))
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    SpecRow(label = "Codec", value = if (audioFormatInfo.codec.isNotBlank()) audioFormatInfo.codec else "Opus")
-                    SpecRow(label = "Container", value = "WebM / Matroska")
-                    SpecRow(label = "Bitrate", value = if (audioFormatInfo.bitrateKbps > 0) "${audioFormatInfo.bitrateKbps} kbps (Lossless/High-Fi)" else "320 kbps (Max Quality)")
-                    SpecRow(label = "Sample Rate", value = if (audioFormatInfo.sampleRateHz > 0) "${audioFormatInfo.sampleRateHz / 1000f} kHz • ${audioFormatInfo.channelCount} Channels" else "48.0 kHz • Stereo")
-                    SpecRow(label = "Duration", value = track.durationFormatted)
-                    SpecRow(label = "Quality Profile", value = streamingQuality.title)
-                    SpecRow(label = "Stream Source", value = "YouTube Music Studio Engine")
-                }
-
-                Spacer(modifier = Modifier.height(18.dp))
-
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(CircleShape)
-                        .background(Color(0xFF26262C))
-                        .bouncyClickable(pressedScale = 0.95f, onClick = onDismiss)
-                        .padding(vertical = 12.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "Close",
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Color.White
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun SpecRow(label: String, value: String) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            text = label,
-            fontSize = 13.sp,
-            color = Color(0xFF9E9E9E)
-        )
-        Text(
-            text = value,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = Color.White,
-            textAlign = TextAlign.End
-        )
-    }
-}

@@ -1,5 +1,8 @@
 package com.vybe.music.model
 
+import androidx.compose.runtime.Immutable
+
+@Immutable
 data class ArtistAlbum(
     val id: String,
     val title: String,
@@ -11,6 +14,7 @@ data class ArtistAlbum(
     val browseId: String? = null
 )
 
+@Immutable
 data class AlbumDetail(
     val id: String,
     val title: String,
@@ -22,6 +26,7 @@ data class AlbumDetail(
     val browseId: String? = null
 )
 
+@Immutable
 data class ArtistDetail(
     val name: String,
     val imageUrl: String,
@@ -37,6 +42,7 @@ data class ArtistDetail(
     val browseId: String? = null
 )
 
+@Immutable
 data class ArtistSummary(
     val name: String,
     val imageUrl: String,

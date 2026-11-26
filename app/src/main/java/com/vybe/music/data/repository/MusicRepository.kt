@@ -119,7 +119,7 @@ class MusicRepositoryImpl(
         "Lover Diljit Dosanjh",
         "Tum Hi Ho Arijit Singh",
         "Tauba Tauba Karan Aujla",
-        "Dynamite BTS",
+        "Do I Wanna Know? Arctic Monkeys",
         "Chaleya Arijit Singh",
         "Brown Munde AP Dhillon"
     )

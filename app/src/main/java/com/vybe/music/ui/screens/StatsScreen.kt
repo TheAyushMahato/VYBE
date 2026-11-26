@@ -52,12 +52,19 @@ import com.vybe.music.ui.components.VybeDropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -106,6 +113,7 @@ data class AlbumStat(
     val tracks: List<Track>
 )
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StatsScreen(
     stats: PlaybackStats = PlaybackStats(),
@@ -113,6 +121,8 @@ fun StatsScreen(
     isPlaying: Boolean,
     userName: String = "Ayush Mahato",
     userPhotoUrl: String? = null,
+    isRefreshingStats: Boolean = false,
+    onRefreshStats: () -> Unit = {},
     onSearchClick: () -> Unit = {},
     onProfileClick: () -> Unit = {},
     onTrackClick: (Track, List<Track>) -> Unit = { _, _ -> },
@@ -286,6 +296,35 @@ fun StatsScreen(
             .fillMaxSize()
             .background(Color(0xFF000000))
     ) {
+        // Pull-to-refresh setup
+        val pullStateStats = rememberPullToRefreshState()
+        val hapticStats = LocalHapticFeedback.current
+        var hapticFiredStats by remember { mutableStateOf(false) }
+        LaunchedEffect(pullStateStats.distanceFraction) {
+            if (pullStateStats.distanceFraction >= 1f && !hapticFiredStats) {
+                hapticStats.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                hapticFiredStats = true
+            }
+            if (pullStateStats.distanceFraction < 0.5f) hapticFiredStats = false
+        }
+
+        PullToRefreshBox(
+            isRefreshing = isRefreshingStats,
+            onRefresh = onRefreshStats,
+            state = pullStateStats,
+            modifier = Modifier.fillMaxSize(),
+            indicator = {
+                PullToRefreshDefaults.Indicator(
+                    state = pullStateStats,
+                    isRefreshing = isRefreshingStats,
+                    containerColor = Color(0xFF1E1E1E),
+                    color = Color.White,
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = statusBarTop + 64.dp)
+                )
+            }
+        ) {
         // ── Scrollable Body (Passes smoothly underneath Crystal Header) ──
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
@@ -460,7 +499,7 @@ fun StatsScreen(
                             Box(
                                 modifier = Modifier
                                     .clip(CircleShape)
-                                    .background(Color(0xFF18181C))
+                                    .background(Color(0xFF181818))
                                     .bouncyClickable(pressedScale = 0.92f) {
                                         showFilterDropdown = true
                                     }
@@ -614,6 +653,7 @@ fun StatsScreen(
                     }
                 }
             }
+        } // end PullToRefreshBox
 
             // ── Single Source-of-Truth Crystal-Clear Zero-Blur Header ──
             VybeCrystalHeader(
@@ -642,7 +682,7 @@ fun StatsScreen(
                         .fillMaxHeight(0.75f)
                         .align(Alignment.BottomCenter)
                         .clip(RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp))
-                        .background(Color(0xFF141417))
+                        .background(Color(0xFF0E0E0E))
                         .clickable(enabled = false) {}
                         .padding(24.dp)
                 ) {
@@ -657,7 +697,7 @@ fun StatsScreen(
                                 modifier = Modifier
                                     .size(42.dp)
                                     .clip(CircleShape)
-                                    .background(Color(0xFF222226))
+                                    .background(Color(0xFF1A1A1A))
                                     .bouncyClickable(pressedScale = 0.88f) {
                                         showBreakdownSheet = false
                                     },
@@ -681,7 +721,7 @@ fun StatsScreen(
                             Box(
                                 modifier = Modifier
                                     .clip(CircleShape)
-                                    .background(Color(0xFF222226))
+                                    .background(Color(0xFF1A1A1A))
                                     .padding(horizontal = 14.dp, vertical = 7.dp)
                             ) {
                                 Text(
@@ -736,14 +776,14 @@ fun StatsScreen(
                                         .fillMaxWidth()
                                         .height(8.dp)
                                         .clip(CircleShape)
-                                        .background(Color(0xFF252529))
+                                        .background(Color(0xFF1A1A1A))
                                 ) {
                                     Box(
                                         modifier = Modifier
                                             .fillMaxWidth(ratio)
                                             .fillMaxHeight()
                                             .clip(CircleShape)
-                                            .background(Color(0xFFE5E5EA))
+                                            .background(Color(0xFFE5E5E5))
                                     )
                                 }
                             }
@@ -889,7 +929,7 @@ private fun StatTrackRow(
                     overflow = TextOverflow.Ellipsis
                 )
                 Spacer(modifier = Modifier.height(3.dp))
-                val subtitle = if (track.album.isNotBlank()) "${track.artist} • ${track.album}" else track.artist
+                val subtitle = com.vybe.music.data.TrackMetadataIndex.formatSubtitle(track.artist, track.album)
                 Text(
                     text = subtitle,
                     fontSize = 13.sp,
@@ -907,7 +947,7 @@ private fun StatTrackRow(
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(50))
-                        .background(Color(0xFF222226))
+                        .background(Color(0xFF222222))
                         .padding(horizontal = 10.dp, vertical = 5.dp),
                     contentAlignment = Alignment.Center
                 ) {
@@ -989,7 +1029,7 @@ private fun StatArtistRow(
             modifier = Modifier
                 .size(48.dp)
                 .clip(CircleShape)
-                .background(Color(0xFF222226)),
+                .background(Color(0xFF222222)),
             contentAlignment = Alignment.Center
         ) {
             if (artistStat.artworkUrl.isNotBlank()) {
@@ -1041,7 +1081,7 @@ private fun StatArtistRow(
         Box(
             modifier = Modifier
                 .clip(CircleShape)
-                .background(Color(0xFF1E1E22))
+                .background(Color(0xFF1E1E1E))
                 .padding(horizontal = 10.dp, vertical = 4.dp),
             contentAlignment = Alignment.Center
         ) {
@@ -1049,7 +1089,7 @@ private fun StatArtistRow(
                 text = "${artistStat.scrobbleCount}x",
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
-                color = Color(0xFFE5E5EA)
+                color = Color(0xFFE5E5E5)
             )
         }
 
@@ -1093,7 +1133,7 @@ private fun StatAlbumRow(
             modifier = Modifier
                 .size(48.dp)
                 .clip(RoundedCornerShape(8.dp))
-                .background(Color(0xFF222226))
+                .background(Color(0xFF222222))
         ) {
             AsyncImage(
                 model = ImageRequest.Builder(LocalContext.current)
@@ -1104,7 +1144,7 @@ private fun StatAlbumRow(
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color(0xFF1E1E22))
+                    .background(Color(0xFF1E1E1E))
             )
         }
 
@@ -1137,7 +1177,7 @@ private fun StatAlbumRow(
         Box(
             modifier = Modifier
                 .clip(CircleShape)
-                .background(Color(0xFF1E1E22))
+                .background(Color(0xFF1E1E1E))
                 .padding(horizontal = 10.dp, vertical = 4.dp),
             contentAlignment = Alignment.Center
         ) {
@@ -1145,7 +1185,7 @@ private fun StatAlbumRow(
                 text = "${albumStat.scrobbleCount}x",
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
-                color = Color(0xFFE5E5EA)
+                color = Color(0xFFE5E5E5)
             )
         }
 
@@ -1178,7 +1218,7 @@ private fun EmptyStatsState(message: String) {
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(22.dp))
-            .background(Color(0xFF121215))
+            .background(Color(0xFF121212))
             .padding(vertical = 40.dp, horizontal = 20.dp),
         contentAlignment = Alignment.Center
     ) {

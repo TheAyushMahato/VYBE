@@ -77,7 +77,7 @@ fun AppUpdateDialog(
                         modifier = Modifier
                             .size(46.dp)
                             .clip(RoundedCornerShape(14.dp))
-                            .background(Color(0xFF222226)),
+                            .background(Color(0xFF222222)),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
@@ -101,7 +101,7 @@ fun AppUpdateDialog(
                         Box(
                             modifier = Modifier
                                 .clip(CircleShape)
-                                .background(Color(0xFF222226))
+                                .background(Color(0xFF222222))
                                 .padding(horizontal = 8.dp, vertical = 3.dp)
                         ) {
                             Text(
@@ -121,7 +121,7 @@ fun AppUpdateDialog(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(16.dp))
-                            .background(Color(0xFF1C1C20))
+                            .background(Color(0xFF1C1C1C))
                             .padding(14.dp)
                     ) {
                         Column(

@@ -7,6 +7,7 @@ import com.google.gson.reflect.TypeToken
 import com.vybe.music.model.ArtistSeed
 import com.vybe.music.model.CustomPlaylist
 import com.vybe.music.model.Track
+import com.vybe.music.data.repository.ArtistRepository
 import java.io.File
 
 data class PlaybackStats(
@@ -540,8 +541,45 @@ class LocalMusicStorage(
         val json = prefs.getString("selected_artist_seeds_json", null) ?: return emptyList()
         return try {
             val type = object : TypeToken<List<ArtistSeed>>() {}.type
-            gson.fromJson(json, type) ?: emptyList()
+            val rawSeeds: List<ArtistSeed> = gson.fromJson(json, type) ?: emptyList()
+            var changed = false
+            val cleanedSeeds = rawSeeds.map { seed ->
+                if (!ArtistRepository.isValidArtistImageUrl(seed.imageUrl)) {
+                    changed = true
+                    val verified = ArtistRepository.findVerifiedSummary(seed.name)?.imageUrl
+                    val fallback = if (ArtistRepository.isValidArtistImageUrl(verified)) verified!! else ""
+                    seed.copy(imageUrl = fallback)
+                } else seed
+            }
+            if (changed) {
+                prefs.edit().putString("selected_artist_seeds_json", gson.toJson(cleanedSeeds)).apply()
+            }
+            cleanedSeeds
         } catch (_: Exception) { emptyList() }
+    }
+
+    /**
+     * Purges any previously cached invalid/placeholder artist image URLs from local storage
+     * so broken silhouettes are replaced immediately on launch.
+     */
+    fun purgeInvalidArtistCaches() {
+        val json = prefs.getString("selected_artist_seeds_json", null) ?: return
+        try {
+            val type = object : TypeToken<List<ArtistSeed>>() {}.type
+            val rawSeeds: List<ArtistSeed> = gson.fromJson(json, type) ?: return
+            var changed = false
+            val cleanedSeeds = rawSeeds.map { seed ->
+                if (!ArtistRepository.isValidArtistImageUrl(seed.imageUrl)) {
+                    changed = true
+                    val verified = ArtistRepository.findVerifiedSummary(seed.name)?.imageUrl
+                    val fallback = if (ArtistRepository.isValidArtistImageUrl(verified)) verified!! else ""
+                    seed.copy(imageUrl = fallback)
+                } else seed
+            }
+            if (changed) {
+                prefs.edit().putString("selected_artist_seeds_json", gson.toJson(cleanedSeeds)).apply()
+            }
+        } catch (_: Exception) {}
     }
 
     fun saveTastePreferences(

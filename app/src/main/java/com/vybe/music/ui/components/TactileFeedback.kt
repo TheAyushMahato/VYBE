@@ -68,3 +68,59 @@ fun Modifier.bouncyClickable(
             onClick = onClick
         )
 }
+
+/**
+ * Universal VYBE spring press modifier:
+ * Compresses to [pressedScale] on touch-down and springs back up on release with Apple-inspired physics.
+ */
+@Composable
+fun Modifier.vybeSpringPress(
+    pressedScale: Float = 0.90f,
+    interactionSource: MutableInteractionSource = remember { MutableInteractionSource() }
+): Modifier {
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) pressedScale else 1f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMediumLow
+        ),
+        label = "vybe_spring_scale"
+    )
+
+    return this.graphicsLayer {
+        scaleX = scale
+        scaleY = scale
+    }
+}
+
+/**
+ * Clickable modifier combining [vybeSpringPress] with click handling and zero indication ripple.
+ */
+@Composable
+fun Modifier.vybeSpringClickable(
+    pressedScale: Float = 0.90f,
+    interactionSource: MutableInteractionSource = remember { MutableInteractionSource() },
+    onClick: () -> Unit
+): Modifier {
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) pressedScale else 1f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMediumLow
+        ),
+        label = "vybe_spring_click_scale"
+    )
+
+    return this
+        .graphicsLayer {
+            scaleX = scale
+            scaleY = scale
+        }
+        .clickable(
+            interactionSource = interactionSource,
+            indication = null,
+            onClick = onClick
+        )
+}

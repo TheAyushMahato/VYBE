@@ -51,15 +51,20 @@ import com.vybe.music.data.audio.YouTubeAudioExtractor
 import com.vybe.music.data.audio.YouTubeVideoExtractor
 import com.vybe.music.data.repository.ArtistRepository
 import com.vybe.music.data.repository.GlobalChartRepository
+import com.vybe.music.data.repository.LyricsRepository
 import com.vybe.music.data.repository.MusicRepository
 import com.vybe.music.data.repository.MusicRepositoryImpl
 import com.vybe.music.model.AlbumDetail
+import com.vybe.music.model.EditorialAlbum
+import com.vybe.music.data.repository.AlbumRepository
 import com.vybe.music.model.ArtistDetail
 import com.vybe.music.model.ArtistSeed
 import com.vybe.music.model.AudioQuality
 import com.vybe.music.ui.components.VybeBannerData
 import com.vybe.music.model.AudioTrackFormatInfo
 import com.vybe.music.model.CustomPlaylist
+import com.vybe.music.model.LyricsResult
+import com.vybe.music.model.LyricsUiState
 import com.vybe.music.model.NavTab
 import com.vybe.music.model.RepeatMode
 import com.vybe.music.model.Track
@@ -70,6 +75,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -141,6 +147,7 @@ class PlayerViewModel @JvmOverloads constructor(
         artists.firstOrNull()?.let { _selectedArtist.value = it }
         scheduleCloudSync()
         generatePersonalizedFeed()
+        loadAlbumsForYou(forceRefresh = true)
     }
 
     fun openTasteOnboarding() {
@@ -208,6 +215,7 @@ class PlayerViewModel @JvmOverloads constructor(
     val queuedTrackIds: StateFlow<Set<String>> = offlineDownloadManager.queuedTrackIds
     val activePlaylistDownloads: StateFlow<Map<String, com.vybe.music.data.PlaylistDownloadProgress>> = offlineDownloadManager.activePlaylistDownloads
     val playlistProgress = offlineDownloadManager.playlistProgress
+    val failedTrackIds: StateFlow<Set<String>> = offlineDownloadManager.failedTrackIds
 
     private val _localTracks = MutableStateFlow<List<Track>>(emptyList())
     val localTracks: StateFlow<List<Track>> = _localTracks.asStateFlow()
@@ -219,6 +227,7 @@ class PlayerViewModel @JvmOverloads constructor(
         viewModelScope.launch {
             _isScanningLocalAudio.value = true
             try {
+                offlineDownloadManager.reconcileWithMediaStore()
                 val tracks = com.vybe.music.data.repository.LocalAudioRepository.queryDeviceAudio(getApplication())
                 _localTracks.value = tracks
             } catch (e: Exception) {
@@ -295,6 +304,15 @@ class PlayerViewModel @JvmOverloads constructor(
     private val _recentSearches = MutableStateFlow<List<String>>(localMusicStorage.getRecentSearches())
     val recentSearches: StateFlow<List<String>> = _recentSearches.asStateFlow()
 
+    private val _albumsForYou = MutableStateFlow<List<EditorialAlbum>>(emptyList())
+    val albumsForYou: StateFlow<List<EditorialAlbum>> = _albumsForYou.asStateFlow()
+
+    private val _isRefreshingHome = MutableStateFlow(false)
+    val isRefreshingHome: StateFlow<Boolean> = _isRefreshingHome.asStateFlow()
+
+    private val _heroRefreshKey = MutableStateFlow(0)
+    val heroRefreshKey: StateFlow<Int> = _heroRefreshKey.asStateFlow()
+
     fun addRecentSearch(query: String) {
         val trimmed = query.trim()
         if (trimmed.isNotBlank()) {
@@ -360,17 +378,17 @@ class PlayerViewModel @JvmOverloads constructor(
     val isAlbumLoading: StateFlow<Boolean> = _isAlbumLoading.asStateFlow()
 
     private val _dynamicColor = MutableStateFlow(
-        Color(_currentTrack.value?.defaultDominantColorHex ?: 0xFF1A1A1E)
+        Color(_currentTrack.value?.defaultDominantColorHex ?: 0xFF1A1A1A)
     )
     val dynamicColor: StateFlow<Color> = _dynamicColor.asStateFlow()
 
-    private val _darkVibrantColor = MutableStateFlow(Color(0xFF121216))
+    private val _darkVibrantColor = MutableStateFlow(Color(0xFF121212))
     val darkVibrantColor: StateFlow<Color> = _darkVibrantColor.asStateFlow()
 
     private val _vibrantColor = MutableStateFlow(Color(0xFFE50914))
     val vibrantColor: StateFlow<Color> = _vibrantColor.asStateFlow()
 
-    private val _mutedColor = MutableStateFlow(Color(0xFF2B2B36))
+    private val _mutedColor = MutableStateFlow(Color(0xFF2B2B2B))
     val mutedColor: StateFlow<Color> = _mutedColor.asStateFlow()
 
     private val _isVideoMode = MutableStateFlow(false)
@@ -400,6 +418,16 @@ class PlayerViewModel @JvmOverloads constructor(
     val mediaControllerState: StateFlow<MediaController?> = _mediaControllerState.asStateFlow()
     val videoPlayerState: StateFlow<Player?> = _mediaControllerState.asStateFlow()
 
+    // ── Synced Lyrics State ──
+    private val _lyricsState = MutableStateFlow<LyricsUiState>(LyricsUiState.Idle)
+    val lyricsState: StateFlow<LyricsUiState> = _lyricsState.asStateFlow()
+
+    private val _lyricsOffsetMs = MutableStateFlow(0L)
+    val lyricsOffsetMs: StateFlow<Long> = _lyricsOffsetMs.asStateFlow()
+
+    private var currentLyricsTrackId: String? = null
+    private var lyricsFetchJob: Job? = null
+
     private var progressJob: Job? = null
     private var playJob: Job? = null
     private var videoSwitchJob: Job? = null  // Tracks background video extraction so it can be cancelled on track skip
@@ -418,14 +446,44 @@ class PlayerViewModel @JvmOverloads constructor(
 
     init {
         YouTubeAudioExtractor.clearCache()
+        localMusicStorage.purgeInvalidArtistCaches()
         initializeMediaController()
         loadGlobalTop5Daily(forceRefresh = false)
         loadTrendingTracks()
         generatePersonalizedFeed()
+        loadAlbumsForYou(forceRefresh = false)
         observeSearchQuery()
+
+        // Observe local audio refresh triggers (e.g. after background download export)
+        viewModelScope.launch {
+            com.vybe.music.data.repository.LocalAudioRepository.refreshTrigger
+                .debounce(1000L)
+                .collect {
+                    if (com.vybe.music.data.repository.LocalAudioRepository.hasAudioPermission(getApplication())) {
+                        scanLocalAudio()
+                    }
+                }
+        }
+        viewModelScope.launch {
+            offlineDownloadManager.reconcileWithMediaStore()
+        }
 
         currentTrack.value?.let { track ->
             extractPaletteForTrack(track)
+        }
+
+        // Automatic background prefetch & sync for track lyrics
+        viewModelScope.launch {
+            currentTrack.collectLatest { track ->
+                if (track != null) {
+                    withContext(Dispatchers.IO) {
+                        LyricsRepository.getLyrics(getApplication(), track, forceRefresh = false)
+                    }
+                    if (currentLyricsTrackId != null && currentLyricsTrackId != track.id) {
+                        loadLyrics(track)
+                    }
+                }
+            }
         }
 
         // Sync legacy favorite IDs into full liked tracks if needed
@@ -1107,6 +1165,54 @@ class PlayerViewModel @JvmOverloads constructor(
         loadGlobalTop5Daily(forceRefresh = true)
         loadTrendingTracks(forceRefresh = true)
         generatePersonalizedFeed()
+        loadAlbumsForYou(forceRefresh = true)
+    }
+
+    fun refreshHomeFeed() {
+        viewModelScope.launch {
+            _isRefreshingHome.value = true
+            val startMs = System.currentTimeMillis()
+            withContext(Dispatchers.IO) {
+                try {
+                    offlineDownloadManager.reconcileWithMediaStore()
+                    withTimeout(10_000L) {
+                        loadGlobalTop5Daily(forceRefresh = true)
+                        loadTrendingTracks(forceRefresh = true)
+                        generatePersonalizedFeed()
+                        loadAlbumsForYou(forceRefresh = true)
+                    }
+                } catch (_: Exception) {}
+            }
+            _heroRefreshKey.value = (_heroRefreshKey.value + 1) % Int.MAX_VALUE
+            val elapsed = System.currentTimeMillis() - startMs
+            if (elapsed < 650L) delay(650L - elapsed)
+            _isRefreshingHome.value = false
+        }
+    }
+
+    fun refreshPlaybackStats() {
+        viewModelScope.launch(Dispatchers.IO) {
+            _playbackStats.value = localMusicStorage.getPlaybackStats()
+        }
+    }
+
+    fun loadAlbumsForYou(forceRefresh: Boolean = false) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val languages = _selectedLanguages.value
+                val artists = _selectedArtists.value
+                val tasteProfile = localMusicStorage.getUserTasteProfile()
+                val topArtists = tasteProfile.topArtists
+                val albums = AlbumRepository.getAlbumsForUser(
+                    selectedArtists = artists,
+                    preferredLanguages = languages,
+                    topArtists = topArtists
+                )
+                _albumsForYou.value = albums
+            } catch (e: Exception) {
+                Log.e("PlayerViewModel", "Failed to load albums for you: ${e.message}")
+            }
+        }
     }
 
     fun filterHomeByMood(mood: String) {
@@ -1380,7 +1486,7 @@ class PlayerViewModel @JvmOverloads constructor(
         _durationMs.value = current.durationMs
         _playbackPositionMs.value = 0L
         _dynamicColor.value = Color(current.defaultDominantColorHex)
-        _darkVibrantColor.value = Color(0xFF121216)
+        _darkVibrantColor.value = Color(0xFF121212)
         extractPaletteForTrack(current)
         YouTubeAudioExtractor.getCachedTrackFormat(current.id)?.let {
             _currentAudioFormat.value = it
@@ -1615,31 +1721,67 @@ class PlayerViewModel @JvmOverloads constructor(
         val isOpus = codecs.contains("opus", ignoreCase = true) || sampleMime.contains("opus", ignoreCase = true) || sampleMime.contains("webm", ignoreCase = true)
         val isAac = codecs.contains("mp4a", ignoreCase = true) || sampleMime.contains("mp4", ignoreCase = true) || sampleMime.contains("aac", ignoreCase = true)
         val isFlac = sampleMime.contains("flac", ignoreCase = true)
+        val isMp3 = codecs.contains("mp3", ignoreCase = true) || sampleMime.contains("mpeg", ignoreCase = true) || sampleMime.contains("mp3", ignoreCase = true)
+
+        val currentUri = _currentTrack.value?.mediaUri ?: ""
+        val isLocalOrDownloaded = currentUri.startsWith("/") || currentUri.startsWith("file://") || currentUri.startsWith("content://")
 
         val codec = when {
-            isOpus -> "Opus"
+            isOpus -> "OPUS"
             isAac -> "AAC"
             isFlac -> "FLAC"
-            else -> format.sampleMimeType?.substringAfter("/")?.uppercase()?.takeIf { it.isNotBlank() } ?: "Opus"
+            isMp3 -> "MP3"
+            currentUri.endsWith(".mp3", ignoreCase = true) -> "MP3"
+            currentUri.endsWith(".m4a", ignoreCase = true) || currentUri.endsWith(".aac", ignoreCase = true) -> "AAC"
+            currentUri.endsWith(".opus", ignoreCase = true) -> "OPUS"
+            currentUri.endsWith(".flac", ignoreCase = true) -> "FLAC"
+            else -> format.sampleMimeType?.substringAfter("/")?.uppercase()?.takeIf { it.isNotBlank() } ?: "AAC"
         }
 
+        val cachedFmt = _currentTrack.value?.id?.let { YouTubeAudioExtractor.getCachedTrackFormat(it) }
         val bitrateKbps = when {
             format.bitrate > 0 -> (format.bitrate / 1000)
             format.averageBitrate > 0 -> (format.averageBitrate / 1000)
+            cachedFmt != null && cachedFmt.bitrateKbps > 0 -> cachedFmt.bitrateKbps
+            isLocalOrDownloaded -> {
+                try {
+                    val file = if (currentUri.startsWith("file://")) java.io.File(java.net.URI(currentUri).path) else java.io.File(currentUri)
+                    val durSec = (_durationMs.value / 1000).coerceAtLeast(1)
+                    if (file.exists() && file.length() > 0) {
+                        val computed = ((file.length() * 8) / durSec / 1000).toInt()
+                        when {
+                            computed in 290..340 -> 320
+                            computed in 230..270 -> 256
+                            computed in 180..210 -> 192
+                            computed in 140..175 -> 160
+                            computed in 115..135 -> 128
+                            computed > 0 -> computed
+                            else -> 320
+                        }
+                    } else 320
+                } catch (_: Exception) {
+                    320
+                }
+            }
             else -> {
-                val uri = _currentTrack.value?.mediaUri ?: ""
                 when {
-                    uri.contains("_320") -> 320
-                    uri.contains("_160") -> 160
-                    isOpus -> 160
-                    isAac -> 256
+                    currentUri.contains("_320") -> 320
+                    currentUri.contains("_160") -> 160
+                    codec == "OPUS" -> 160
+                    codec == "AAC" -> 256
+                    codec == "MP3" -> 320
                     else -> 320
                 }
             }
         }
 
-        val sampleRate = if (format.sampleRate > 0) format.sampleRate else 48000
-        val sampleRateStr = if (sampleRate % 1000 == 0) "${sampleRate / 1000} kHz" else "%.1f kHz".format(sampleRate / 1000.0)
+        val sampleRate = when {
+            format.sampleRate > 0 -> format.sampleRate
+            cachedFmt != null && cachedFmt.sampleRateHz > 0 -> cachedFmt.sampleRateHz
+            codec == "OPUS" -> 48000
+            else -> 44100
+        }
+        val sampleRateStr = if (sampleRate % 1000 == 0) "${sampleRate / 1000} kHz" else "%.1f kHz".format(java.util.Locale.US, sampleRate / 1000.0)
         val channelCount = if (format.channelCount > 0) format.channelCount else 2
 
         val label = "$codec • $bitrateKbps kbps • $sampleRateStr"
@@ -1885,94 +2027,11 @@ class PlayerViewModel @JvmOverloads constructor(
     }
 
     fun toggleVideoMode(enable: Boolean? = null) {
-        val shouldEnable = enable ?: !_isVideoMode.value
-        val activeTrack = _currentTrack.value ?: return
-        val controller = mediaController
-
-        // Cancel any previous in-flight video extraction immediately
         videoSwitchJob?.cancel()
         videoSwitchJob = null
-
-        if (shouldEnable) {
-            _isVideoMode.value = true
-            _isVideoLoading.value = true
-            _isVideoSynced.value = true
-            videoFallbackIndex = 0
-
-            videoSwitchJob = viewModelScope.launch(Dispatchers.IO) {
-                // 8-second hard watchdog — revert to audio if extraction stalls
-                val timeoutJob = launch {
-                    delay(8000)
-                    if (_isVideoLoading.value) {
-                        Log.w("PlayerViewModel", "Video loading watchdog timeout fired after 8s")
-                        withContext(Dispatchers.Main) {
-                            _isVideoMode.value = false
-                            _isVideoLoading.value = false
-                            showBanner("Video unavailable, continuing audio", Icons.Rounded.VideocamOff)
-                        }
-                    }
-                }
-                try {
-                    val videoResult = YouTubeVideoExtractor.extractVideoStream(activeTrack)
-                    withContext(Dispatchers.Main) {
-                        timeoutJob.cancel()
-                        if (!isActive) return@withContext
-                        if (videoResult != null && _isVideoMode.value && _currentTrack.value?.id == activeTrack.id) {
-                            _currentVideoStream.value = videoResult
-                            _selectedVideoQuality.value = "HD Auto"
-                            videoFallbackIndex = 0
-                            loadVideoStreamIntoPlayer(videoResult, activeTrack)
-                        } else if (_isVideoMode.value) {
-                            _isVideoMode.value = false
-                            _isVideoLoading.value = false
-                            showBanner("Official video not available for this track", Icons.Rounded.VideocamOff)
-                        }
-                    }
-                } catch (e: Exception) {
-                    timeoutJob.cancel()
-                    if (!isActive) return@launch
-                    Log.e("PlayerViewModel", "Failed to switch to video: ${e.message}", e)
-                    withContext(Dispatchers.Main) {
-                        _isVideoMode.value = false
-                        _isVideoLoading.value = false
-                        showBanner("Video unavailable, continuing audio", Icons.Rounded.VideocamOff)
-                    }
-                }
-            }
-        } else {
-            _isVideoMode.value = false
-            _isVideoLoading.value = false
-            _currentVideoStream.value = null
-
-            if (controller != null) {
-                // Snapshot position BEFORE any swap so seek is atomic
-                val currentPos = controller.currentPosition
-                val isPlaying = controller.isPlaying
-                val currentIdx = controller.currentMediaItemIndex
-
-                val studioAudioUrl = YouTubeAudioExtractor.getCachedAudioStream(activeTrack.id)
-                val audioTrack = if (!studioAudioUrl.isNullOrBlank() && studioAudioUrl != activeTrack.mediaUri) {
-                    activeTrack.copy(mediaUri = studioAudioUrl)
-                } else {
-                    activeTrack
-                }
-                _currentTrack.value = audioTrack
-
-                isSwitchingStreamMode = true
-                try {
-                    val audioMediaItem = createMediaItem(audioTrack)
-                    controller.replaceMediaItem(currentIdx, audioMediaItem)
-                    controller.seekTo(currentIdx, currentPos)
-                    if (isPlaying) controller.play()
-                    Log.d("PlayerViewModel", "Switched back from video to studio audio at ${currentPos}ms")
-                } finally {
-                    viewModelScope.launch {
-                        delay(400)
-                        isSwitchingStreamMode = false
-                    }
-                }
-            }
-        }
+        _isVideoMode.value = false
+        _isVideoLoading.value = false
+        _currentVideoStream.value = null
     }
 
     private fun loadVideoStreamIntoPlayer(streamResult: VideoStreamResult, activeTrack: Track) {
@@ -2076,51 +2135,13 @@ class PlayerViewModel @JvmOverloads constructor(
     }
 
     fun selectAlternateVideo(videoId: String) {
-        _isVideoLoading.value = true
-        _isVideoMode.value = true
-        viewModelScope.launch(Dispatchers.IO) {
-            val timeoutJob = launch {
-                delay(8000)
-                if (_isVideoLoading.value) {
-                    _isVideoLoading.value = false
-                }
-            }
-            try {
-                val streamResult = YouTubeVideoExtractor.extractStreamForVideoId(videoId)
-                withContext(Dispatchers.Main) {
-                    timeoutJob.cancel()
-                    val active = _currentTrack.value
-                    if (streamResult != null && _isVideoMode.value && active != null) {
-                        _currentVideoStream.value = streamResult
-                        _selectedVideoQuality.value = "HD Auto"
-                        loadVideoStreamIntoPlayer(streamResult, active)
-                    } else {
-                        showBanner("Could not load stream for selected video", Icons.Rounded.ErrorOutline)
-                        _isVideoLoading.value = false
-                    }
-                }
-            } catch (e: Exception) {
-                timeoutJob.cancel()
-                withContext(Dispatchers.Main) {
-                    _isVideoLoading.value = false
-                    showBanner("Failed to load video: ${e.message}", Icons.Rounded.ErrorOutline)
-                }
-            }
-        }
+        _isVideoMode.value = false
+        _isVideoLoading.value = false
+        _currentVideoStream.value = null
     }
 
     fun searchAlternateVideos(customQuery: String? = null) {
-        val query = customQuery?.takeIf { it.isNotBlank() }
-            ?: _currentTrack.value?.let { "${it.title} ${it.artist}" }
-            ?: return
-        _isSearchingAlternates.value = true
-        viewModelScope.launch(Dispatchers.IO) {
-            val results = YouTubeVideoExtractor.searchAlternateVideos(query)
-            withContext(Dispatchers.Main) {
-                _alternateVideos.value = results
-                _isSearchingAlternates.value = false
-            }
-        }
+        _isSearchingAlternates.value = false
     }
 
     fun seekRelative(deltaMs: Long) {
@@ -2128,6 +2149,44 @@ class PlayerViewModel @JvmOverloads constructor(
         val total = mediaController?.duration?.takeIf { it > 0 } ?: _durationMs.value
         val target = (current + deltaMs).coerceIn(0L, total)
         seekTo(target)
+    }
+
+    // ── Synced Lyrics Controls ──
+    fun loadLyrics(track: Track, forceRefresh: Boolean = false) {
+        if (!forceRefresh && currentLyricsTrackId == track.id && _lyricsState.value is LyricsUiState.Success) {
+            return
+        }
+        lyricsFetchJob?.cancel()
+        currentLyricsTrackId = track.id
+        if (forceRefresh) {
+            _lyricsOffsetMs.value = 0L
+        }
+        _lyricsState.value = LyricsUiState.Loading
+
+        lyricsFetchJob = viewModelScope.launch(Dispatchers.IO) {
+            val result = LyricsRepository.getLyrics(getApplication(), track, forceRefresh)
+            withContext(Dispatchers.Main) {
+                if (_currentTrack.value?.id == track.id || currentLyricsTrackId == track.id) {
+                    _lyricsState.value = if (result != null && result.lines.isNotEmpty()) {
+                        LyricsUiState.Success(result)
+                    } else {
+                        LyricsUiState.NotFound
+                    }
+                }
+            }
+        }
+    }
+
+    fun refreshLyrics(track: Track) {
+        loadLyrics(track, forceRefresh = true)
+    }
+
+    fun adjustLyricsOffset(deltaMs: Long) {
+        _lyricsOffsetMs.value += deltaMs
+    }
+
+    fun resetLyricsOffset() {
+        _lyricsOffsetMs.value = 0L
     }
 
     fun toggleLike(track: Track) {
@@ -2717,7 +2776,7 @@ class PlayerViewModel @JvmOverloads constructor(
                     }
                 }
                 lastProgressSampleTime = now
-                delay(300L)
+                delay(100L)
             }
         }
     }

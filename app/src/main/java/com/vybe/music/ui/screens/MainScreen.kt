@@ -133,6 +133,10 @@ fun MainScreen(
     val isArtistDetailLoading by viewModel.isArtistDetailLoading.collectAsState()
     val currentAlbumDetail by viewModel.currentAlbumDetail.collectAsState()
     val isAlbumLoading by viewModel.isAlbumLoading.collectAsState()
+    val albumsForYou by viewModel.albumsForYou.collectAsState()
+    val isRefreshingHome by viewModel.isRefreshingHome.collectAsState()
+    val heroRefreshKey by viewModel.heroRefreshKey.collectAsState()
+    val isScanningLocalAudio by viewModel.isScanningLocalAudio.collectAsState()
     val playbackStats by viewModel.playbackStats.collectAsState()
     val customPlaylists by viewModel.customPlaylists.collectAsState()
     val likedTracks by viewModel.likedTracks.collectAsState()
@@ -150,6 +154,7 @@ fun MainScreen(
     val downloadedTrackIds by viewModel.downloadedTrackIds.collectAsState()
     val downloadingTrackIds by viewModel.downloadingTrackIds.collectAsState()
     val queuedTrackIds by viewModel.queuedTrackIds.collectAsState()
+    val failedTrackIds by viewModel.failedTrackIds.collectAsState()
     val activePlaylistDownloads by viewModel.activePlaylistDownloads.collectAsState()
     val localTracks by viewModel.localTracks.collectAsState()
     val recentSearches by viewModel.recentSearches.collectAsState()
@@ -383,6 +388,7 @@ fun MainScreen(
                                 top5DailyTracks = top5DailyTracks,
                                 quickPicks = quickPicks,
                                 freshFinds = freshFinds,
+                                albumsForYou = albumsForYou,
                                 selectedArtist = selectedArtist,
                                 userSelectedArtists = userSelectedArtists,
                                 userGenres = selectedGenres.toList(),
@@ -396,6 +402,9 @@ fun MainScreen(
                                 onSearchClick = { viewModel.selectTab(NavTab.SEARCH) },
                                 onProfileClick = { viewModel.openSettings() },
                                 onRefreshClick = { viewModel.refreshRecommendations() },
+                                isRefreshingHome = isRefreshingHome,
+                                onRefreshHome = { viewModel.refreshHomeFeed() },
+                                heroRefreshKey = heroRefreshKey,
                                 onTrackClick = { track, list -> viewModel.playTrack(track, list) },
                                 onPlayTracks = { tracks, shuffle -> viewModel.playTrackList(tracks, shuffle) },
                                 onOpenArtistDetail = openArtistDetail,
@@ -435,6 +444,8 @@ fun MainScreen(
                                 isPlaying = isPlaying,
                                 userName = displayName,
                                 userPhotoUrl = userPhotoUrl,
+                                isRefreshingStats = false,
+                                onRefreshStats = { viewModel.refreshPlaybackStats() },
                                 onSearchClick = { viewModel.selectTab(NavTab.SEARCH) },
                                 onProfileClick = { viewModel.openSettings() },
                                 onTrackClick = { track, list -> viewModel.playTrack(track, list) },
@@ -451,6 +462,8 @@ fun MainScreen(
                                 downloadedTracks = downloadedTracks,
                                 localTracks = localTracks,
                                 onScanLocalAudio = { viewModel.scanLocalAudio() },
+                                isRefreshingLibrary = isScanningLocalAudio,
+                                onRefreshLibrary = { viewModel.scanLocalAudio() },
                                 isPlaying = isPlaying,
                                 currentTrack = currentTrack,
                                 onCreatePlaylist = { viewModel.createPlaylist(it) },
@@ -462,6 +475,7 @@ fun MainScreen(
                                 downloadedTrackIds = downloadedTrackIds,
                                 downloadingTrackIds = downloadingTrackIds,
                                 queuedTrackIds = queuedTrackIds,
+                                failedTrackIds = failedTrackIds,
                                 activePlaylistDownloads = activePlaylistDownloads,
                                 onCancelPlaylistDownloads = { id, tracks -> viewModel.cancelPlaylistDownloads(id, tracks) },
                                 onDeleteDownloadedPlaylist = { viewModel.deleteDownloadedPlaylist(it) },
@@ -741,7 +755,7 @@ fun MainScreen(
                         translationY = screenHeightPx * (1f - p)
                         alpha = (p * 1.5f).coerceIn(0f, 1f)
                     }
-                    .background(Color(0xFF060608))
+                    .background(Color(0xFF060606))
                     .pointerInput(Unit) {
                         detectVerticalDragGestures(
                             onVerticalDrag = { change, dragAmount ->

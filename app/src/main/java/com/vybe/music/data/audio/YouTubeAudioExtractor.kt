@@ -304,13 +304,26 @@ object YouTubeAudioExtractor {
         extractAudioStream(track, quality)
     }
 
-    suspend fun extractAudioStream(track: Track, quality: AudioQuality = AudioQuality.MAX): String? = withContext(Dispatchers.IO) {
+    suspend fun extractAudioStream(
+        track: Track,
+        quality: AudioQuality = AudioQuality.MAX,
+        forceRefresh: Boolean = false
+    ): String? = withContext(Dispatchers.IO) {
         val cacheKey = "${track.title.trim().lowercase()}_${track.artist.trim().lowercase()}_${quality.name}"
         val now = System.currentTimeMillis()
-        val cached = streamUrlCache[cacheKey] ?: streamUrlCache[track.id]
-        if (cached != null && now < cached.expiresAtMillis) {
-            Log.d(TAG, "Returning cached 2-hr TTL audio stream for: ${track.title} [${quality.name}]")
-            return@withContext cached.url
+        if (forceRefresh) {
+            streamUrlCache.remove(cacheKey)
+            streamUrlCache.remove(track.id)
+            audioStreamCache.remove(cacheKey)
+            audioStreamCache.remove(track.id)
+            trackCandidatesMap.remove(track.id)
+            currentCandidateIndexMap.remove(track.id)
+        } else {
+            val cached = streamUrlCache[cacheKey] ?: streamUrlCache[track.id]
+            if (cached != null && now < cached.expiresAtMillis) {
+                Log.d(TAG, "Returning cached 2-hr TTL audio stream for: ${track.title} [${quality.name}]")
+                return@withContext cached.url
+            }
         }
 
         val candidatesList = mutableListOf<StreamCandidate>()
@@ -415,6 +428,35 @@ object YouTubeAudioExtractor {
 
         Log.i(TAG, "Resolved stream for '${track.title}' [source=${chosen.source}, itag=${chosen.itag}, mime=${chosen.mimeType}, bitrate=${chosen.bitrate}kbps]: ${chosen.url}")
         return@withContext chosen.url
+    }
+
+    suspend fun extractAudioStreamCandidates(
+        track: Track,
+        quality: AudioQuality = AudioQuality.MAX,
+        forceRefresh: Boolean = false
+    ): List<StreamCandidate> = withContext(Dispatchers.IO) {
+        val cacheKey = "${track.title.trim().lowercase()}_${track.artist.trim().lowercase()}_${quality.name}"
+        if (forceRefresh) {
+            streamUrlCache.remove(cacheKey)
+            streamUrlCache.remove(track.id)
+            audioStreamCache.remove(cacheKey)
+            audioStreamCache.remove(track.id)
+            trackCandidatesMap.remove(track.id)
+            currentCandidateIndexMap.remove(track.id)
+        }
+
+        extractAudioStream(track, quality, forceRefresh = forceRefresh)
+
+        val rawCandidates = trackCandidatesMap[track.id].orEmpty()
+        // Priority order:
+        // 1. audio/mp4 (.m4a) highest bitrate first
+        // 2. remaining audio/mp4
+        // 3. audio/webm Opus highest bitrate first
+        // 4. all other streams
+        rawCandidates.sortedWith(
+            compareByDescending<StreamCandidate> { it.mimeType.contains("mp4", ignoreCase = true) || it.mimeType.contains("m4a", ignoreCase = true) }
+                .thenByDescending { it.bitrate }
+        )
     }
 
     private data class Candidate(val videoId: String, val title: String, val channel: String, val durationSeconds: Int, val score: Int)

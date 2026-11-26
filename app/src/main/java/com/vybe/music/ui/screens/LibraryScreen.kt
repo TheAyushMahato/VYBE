@@ -77,10 +77,13 @@ import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AutoAwesome
+import com.vybe.music.ui.components.vybeSpringClickable
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.DownloadDone
 import androidx.compose.material.icons.rounded.DragHandle
+import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.FolderCopy
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.Lock
@@ -91,11 +94,15 @@ import com.vybe.music.ui.components.VybeDropdownMenu
 import com.vybe.music.ui.components.VybeDropdownMenuItem
 import com.vybe.music.ui.components.VybeSortDropdownItem
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -171,55 +178,8 @@ enum class PlaylistSortOption(val displayName: String) {
     PLAY_TIME("Play time")
 }
 
-fun queryDeviceAudio(context: Context): List<Track> {
-    val trackList = mutableListOf<Track>()
-    try {
-        val projection = arrayOf(
-            MediaStore.Audio.Media._ID,
-            MediaStore.Audio.Media.TITLE,
-            MediaStore.Audio.Media.ARTIST,
-            MediaStore.Audio.Media.ALBUM,
-            MediaStore.Audio.Media.DURATION,
-            MediaStore.Audio.Media.ALBUM_ID
-        )
-        val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0"
-        context.contentResolver.query(
-            MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
-            projection,
-            selection,
-            null,
-            "${MediaStore.Audio.Media.DATE_ADDED} DESC"
-        )?.use { cursor ->
-            val idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
-            val titleCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
-            val artistCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
-            val albumCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
-            val durationCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
-            val albumIdCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
-            while (cursor.moveToNext()) {
-                val id = cursor.getLong(idCol)
-                val title = cursor.getString(titleCol) ?: "Unknown Track"
-                val artist = cursor.getString(artistCol) ?: "Unknown Artist"
-                val album = cursor.getString(albumCol) ?: "Unknown Album"
-                val duration = cursor.getLong(durationCol)
-                val albumId = cursor.getLong(albumIdCol)
-                val artUri = "content://media/external/audio/albumart/$albumId"
-                val contentUri = ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id)
-                trackList.add(
-                    Track(
-                        id = "local_$id",
-                        title = title,
-                        artist = artist,
-                        album = album,
-                        durationMs = duration,
-                        artworkUrl = artUri,
-                        mediaUri = contentUri.toString()
-                    )
-                )
-            }
-        }
-    } catch (_: Exception) {}
-    return trackList
+suspend fun queryDeviceAudio(context: Context): List<Track> {
+    return com.vybe.music.data.repository.LocalAudioRepository.queryDeviceAudio(context)
 }
 
 fun generateCsv(title: String, tracks: List<Track>): String {
@@ -298,6 +258,7 @@ fun exportPlaylist(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LibraryScreen(
     favoriteCount: Int,
@@ -308,9 +269,12 @@ fun LibraryScreen(
     downloadedTrackIds: Set<String> = emptySet(),
     downloadingTrackIds: Set<String> = emptySet(),
     queuedTrackIds: Set<String> = emptySet(),
+    failedTrackIds: Set<String> = emptySet(),
     activePlaylistDownloads: Map<String, PlaylistDownloadProgress> = emptyMap(),
     localTracks: List<Track> = emptyList(),
     onScanLocalAudio: () -> Unit = {},
+    isRefreshingLibrary: Boolean = false,
+    onRefreshLibrary: () -> Unit = {},
     isPlaying: Boolean = false,
     currentTrack: Track? = null,
     onCreatePlaylist: (String) -> Unit = {},
@@ -361,6 +325,7 @@ fun LibraryScreen(
 
     var isSortReversed by remember { mutableStateOf(false) }
     var playlistSearchQuery by remember { mutableStateOf("") }
+    val haptic = LocalHapticFeedback.current
 
     val rawPlaylists = remember(customPlaylists, isSortReversed) {
         if (isSortReversed) customPlaylists.reversed() else customPlaylists
@@ -448,6 +413,7 @@ fun LibraryScreen(
                 downloadedTrackIds = downloadedTrackIds,
                 downloadingTrackIds = downloadingTrackIds,
                 queuedTrackIds = queuedTrackIds,
+                failedTrackIds = failedTrackIds,
                 activePlaylistDownloads = activePlaylistDownloads,
                 downloadedTracks = downloadedTracks,
                 onBack = {
@@ -479,6 +445,7 @@ fun LibraryScreen(
                 downloadedTrackIds = downloadedTrackIds,
                 downloadingTrackIds = downloadingTrackIds,
                 queuedTrackIds = queuedTrackIds,
+                failedTrackIds = failedTrackIds,
                 activePlaylistDownloads = activePlaylistDownloads,
                 downloadedTracks = downloadedTracks,
                 onCancelDownload = { onCancelPlaylistDownloads("liked_songs", likedTracks) },
@@ -514,6 +481,7 @@ fun LibraryScreen(
                 downloadedTrackIds = downloadedTrackIds,
                 downloadingTrackIds = downloadingTrackIds,
                 queuedTrackIds = queuedTrackIds,
+                failedTrackIds = failedTrackIds,
                 activePlaylistDownloads = activePlaylistDownloads,
                 downloadedTracks = downloadedTracks,
                 onChangeCoverClick = {
@@ -548,6 +516,7 @@ fun LibraryScreen(
                 downloadedTrackIds = downloadedTrackIds,
                 downloadingTrackIds = downloadingTrackIds,
                 queuedTrackIds = queuedTrackIds,
+                failedTrackIds = failedTrackIds,
                 activePlaylistDownloads = activePlaylistDownloads,
                 downloadedTracks = downloadedTracks,
                 onCancelDownload = { onCancelPlaylistDownloads(pl.id, pl.tracks) },
@@ -579,6 +548,35 @@ fun LibraryScreen(
                 val totalTracksCount = likedTracks.size + downloadedTracks.size + customPlaylists.sumOf { it.tracks.size }
                 val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
 
+                // Pull-to-refresh setup
+                val pullStateLib = rememberPullToRefreshState()
+                val hapticLib = LocalHapticFeedback.current
+                var hapticFiredLib by remember { mutableStateOf(false) }
+                LaunchedEffect(pullStateLib.distanceFraction) {
+                    if (pullStateLib.distanceFraction >= 1f && !hapticFiredLib) {
+                        hapticLib.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        hapticFiredLib = true
+                    }
+                    if (pullStateLib.distanceFraction < 0.5f) hapticFiredLib = false
+                }
+
+                PullToRefreshBox(
+                    isRefreshing = isRefreshingLibrary,
+                    onRefresh = onRefreshLibrary,
+                    state = pullStateLib,
+                    modifier = Modifier.fillMaxSize(),
+                    indicator = {
+                        PullToRefreshDefaults.Indicator(
+                            state = pullStateLib,
+                            isRefreshing = isRefreshingLibrary,
+                            containerColor = Color(0xFF1E1E1E),
+                            color = Color.White,
+                            modifier = Modifier
+                                .align(Alignment.TopCenter)
+                                .padding(top = statusBarTop + 64.dp)
+                        )
+                    }
+                ) {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(
@@ -656,20 +654,22 @@ fun LibraryScreen(
                             }
                         }
 
-                        // 54dp Generator Button (elevated charcoal #2B2B2B with double-sparkles)
+                        // 54dp Rounded-Square Create Playlist (+) Button matching search bar surface & height
                         Box(
                             modifier = Modifier
                                 .size(54.dp)
                                 .clip(RoundedCornerShape(18.dp))
-                                .background(Color(0xFF2B2B2B))
-                                .bouncyClickable(pressedScale = 0.90f) {
-                                    showGeneratorDialog = true
+                                .background(Color(0xFF141414))
+                                .vybeSpringClickable(pressedScale = 0.92f) {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    newPlaylistName = ""
+                                    showCreateDialog = true
                                 },
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                imageVector = Icons.Rounded.AutoAwesome,
-                                contentDescription = "AI Playlist Generator",
+                                imageVector = Icons.Rounded.Add,
+                                contentDescription = "Create playlist",
                                 tint = PureWhite,
                                 modifier = Modifier.size(24.dp)
                             )
@@ -677,13 +677,12 @@ fun LibraryScreen(
                     }
                 }
 
-                // ── 2. Library Subtitle Row with [+] and [Sort] ──
+                // ── 2. Library Subtitle Row ──
                 item {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 20.dp, vertical = 6.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
@@ -692,60 +691,6 @@ fun LibraryScreen(
                             fontWeight = FontWeight.Medium,
                             color = Color(0xFF9E9E9E)
                         )
-
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            // Circular + button (38.dp, #1A1A1C) to create playlist
-                            Box(
-                                modifier = Modifier
-                                    .size(38.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0xFF1A1A1C))
-                                    .bouncyClickable(pressedScale = 0.88f) {
-                                        newPlaylistName = ""
-                                        showCreateDialog = true
-                                    },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Add,
-                                    contentDescription = "Create playlist",
-                                    tint = PureWhite,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-
-                            // Pill Sort button with sliders icon (#1A1A1C)
-                            Box(
-                                modifier = Modifier
-                                    .height(38.dp)
-                                    .clip(RoundedCornerShape(50))
-                                    .background(Color(0xFF1A1A1C))
-                                    .bouncyClickable(pressedScale = 0.90f) {
-                                        isSortReversed = !isSortReversed
-                                    }
-                                    .padding(horizontal = 14.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(
-                                        imageVector = Icons.Default.Tune,
-                                        contentDescription = "Sort",
-                                        tint = PureWhite,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = "Sort",
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = PureWhite
-                                    )
-                                }
-                            }
-                        }
                     }
                 }
 
@@ -903,7 +848,7 @@ fun LibraryScreen(
                                 modifier = Modifier
                                     .size(58.dp)
                                     .clip(RoundedCornerShape(14.dp))
-                                    .background(Color(0xFF222226)),
+                                    .background(Color(0xFF222222)),
                                 contentAlignment = Alignment.Center
                             ) {
                                 val firstLikedTrack = likedTracks.firstOrNull()
@@ -1142,7 +1087,7 @@ fun LibraryScreen(
                                 modifier = Modifier
                                     .size(58.dp)
                                     .clip(RoundedCornerShape(14.dp))
-                                    .background(Color(0xFF222226)),
+                                    .background(Color(0xFF222222)),
                                 contentAlignment = Alignment.Center
                             ) {
                                 val firstTrack = playlist.tracks.firstOrNull()
@@ -1362,6 +1307,7 @@ fun LibraryScreen(
                     Spacer(modifier = Modifier.height(140.dp))
                 }
             }
+        } // end PullToRefreshBox
 
             // ── Single Source-of-Truth Crystal-Clear Zero-Blur Header ──
             VybeCrystalHeader(
@@ -1381,7 +1327,7 @@ fun LibraryScreen(
                     modifier = Modifier
                         .fillMaxWidth(0.92f)
                         .clip(RoundedCornerShape(28.dp))
-                        .background(Color(0xFF161618))
+                        .background(Color(0xFF161616))
                         .padding(24.dp)
                 ) {
                     Column(modifier = Modifier.fillMaxWidth()) {
@@ -1406,7 +1352,7 @@ fun LibraryScreen(
                                         .fillMaxWidth()
                                         .height(52.dp)
                                         .clip(RoundedCornerShape(16.dp))
-                                        .background(Color(0xFF222225))
+                                        .background(Color(0xFF222222))
                                         .padding(horizontal = 16.dp),
                                     contentAlignment = Alignment.CenterStart
                                 ) {
@@ -1470,7 +1416,7 @@ fun LibraryScreen(
                     modifier = Modifier
                         .fillMaxWidth(0.92f)
                         .clip(RoundedCornerShape(28.dp))
-                        .background(Color(0xFF161618))
+                        .background(Color(0xFF161616))
                         .padding(24.dp)
                 ) {
                     Column(modifier = Modifier.fillMaxWidth()) {
@@ -1495,7 +1441,7 @@ fun LibraryScreen(
                                         .fillMaxWidth()
                                         .height(52.dp)
                                         .clip(RoundedCornerShape(16.dp))
-                                        .background(Color(0xFF222225))
+                                        .background(Color(0xFF222222))
                                         .padding(horizontal = 16.dp),
                                     contentAlignment = Alignment.CenterStart
                                 ) {
@@ -1611,7 +1557,7 @@ fun PlaylistCoverDialog(
             modifier = Modifier
                 .fillMaxWidth(0.92f)
                 .clip(RoundedCornerShape(28.dp))
-                .background(Color(0xFF161618))
+                .background(Color(0xFF161616))
                 .padding(24.dp)
         ) {
             Column(
@@ -1631,7 +1577,7 @@ fun PlaylistCoverDialog(
                     modifier = Modifier
                         .size(120.dp)
                         .clip(RoundedCornerShape(18.dp))
-                        .background(Color(0xFF222226)),
+                        .background(Color(0xFF222222)),
                     contentAlignment = Alignment.Center
                 ) {
                     if (!currentCoverUri.isNullOrBlank()) {
@@ -1675,7 +1621,7 @@ fun PlaylistCoverDialog(
                             .weight(1f)
                             .height(48.dp)
                             .clip(RoundedCornerShape(50))
-                            .background(Color(0xFF242426))
+                            .background(Color(0xFF242424))
                             .bouncyClickable(pressedScale = 0.94f) { onDismiss() },
                         contentAlignment = Alignment.Center
                     ) {
@@ -1729,7 +1675,7 @@ fun PlaylistExportDialog(
             modifier = Modifier
                 .fillMaxWidth(0.92f)
                 .clip(RoundedCornerShape(28.dp))
-                .background(Color(0xFF161618))
+                .background(Color(0xFF161616))
                 .padding(24.dp)
         ) {
             Column(modifier = Modifier.fillMaxWidth()) {
@@ -1747,7 +1693,7 @@ fun PlaylistExportDialog(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(16.dp))
-                        .background(if (selectedFormat == "CSV") Color(0xFF26262A) else Color(0xFF1E1E22))
+                        .background(if (selectedFormat == "CSV") Color(0xFF262626) else Color(0xFF1E1E1E))
                         .bouncyClickable(pressedScale = 0.96f) { selectedFormat = "CSV" }
                         .padding(horizontal = 16.dp, vertical = 14.dp)
                 ) {
@@ -1790,7 +1736,7 @@ fun PlaylistExportDialog(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(16.dp))
-                        .background(if (selectedFormat == "M3U") Color(0xFF26262A) else Color(0xFF1E1E22))
+                        .background(if (selectedFormat == "M3U") Color(0xFF262626) else Color(0xFF1E1E1E))
                         .bouncyClickable(pressedScale = 0.96f) { selectedFormat = "M3U" }
                         .padding(horizontal = 16.dp, vertical = 14.dp)
                 ) {
@@ -1837,7 +1783,7 @@ fun PlaylistExportDialog(
                             .weight(1f)
                             .height(46.dp)
                             .clip(RoundedCornerShape(50))
-                            .background(Color(0xFF222226))
+                            .background(Color(0xFF222222))
                             .bouncyClickable(pressedScale = 0.94f) { onDismiss() },
                         contentAlignment = Alignment.Center
                     ) {
@@ -1854,7 +1800,7 @@ fun PlaylistExportDialog(
                             .weight(1f)
                             .height(46.dp)
                             .clip(RoundedCornerShape(50))
-                            .background(Color(0xFF333338))
+                            .background(Color(0xFF333333))
                             .bouncyClickable(pressedScale = 0.94f) {
                                 onExport(selectedFormat == "M3U", false)
                                 onDismiss()
@@ -1915,7 +1861,7 @@ fun SmartPlaylistGeneratorDialog(
             modifier = Modifier
                 .fillMaxWidth(0.92f)
                 .clip(RoundedCornerShape(28.dp))
-                .background(Color(0xFF161618))
+                .background(Color(0xFF161616))
                 .padding(24.dp)
         ) {
             Column(modifier = Modifier.fillMaxWidth()) {
@@ -1951,7 +1897,7 @@ fun SmartPlaylistGeneratorDialog(
                             .fillMaxWidth()
                             .padding(vertical = 4.dp)
                             .clip(RoundedCornerShape(16.dp))
-                            .background(Color(0xFF222226))
+                            .background(Color(0xFF222222))
                             .bouncyClickable(pressedScale = 0.96f) {
                                 val pool = if (allAvailableTracks.isNotEmpty()) allAvailableTracks.shuffled() else emptyList()
                                 val selected = pool.take(10)
@@ -1984,7 +1930,7 @@ fun SmartPlaylistGeneratorDialog(
                         .fillMaxWidth()
                         .height(46.dp)
                         .clip(RoundedCornerShape(50))
-                        .background(Color(0xFF2A2A2E))
+                        .background(Color(0xFF2A2A2A))
                         .bouncyClickable(pressedScale = 0.94f) { onDismiss() },
                     contentAlignment = Alignment.Center
                 ) {
@@ -2083,6 +2029,7 @@ fun PlaylistDetailScreen(
     downloadedTrackIds: Set<String> = emptySet(),
     downloadingTrackIds: Set<String> = emptySet(),
     queuedTrackIds: Set<String> = emptySet(),
+    failedTrackIds: Set<String> = emptySet(),
     activePlaylistDownloads: Map<String, PlaylistDownloadProgress> = emptyMap(),
     downloadedTracks: List<Track> = emptyList(),
     onCancelDownload: (() -> Unit)? = null,
@@ -2226,8 +2173,8 @@ fun PlaylistDetailScreen(
                                 .fillMaxSize()
                                 .background(
                                     Brush.verticalGradient(
-                                        0.00f to Color(0xFF1E1E22),
-                                        0.45f to Color(0xFF151518),
+                                        0.00f to Color(0xFF1E1E1E),
+                                        0.45f to Color(0xFF151515),
                                         0.78f to Color(0xFF0A0A0C),
                                         1.00f to Color(0xFF000000)
                                     )
@@ -2452,6 +2399,55 @@ fun PlaylistDetailScreen(
                             }
                         }
 
+                        val failedInPlaylist = remember(localTracks, failedTrackIds) {
+                            localTracks.filter { it.id in failedTrackIds }
+                        }
+                        if (failedInPlaylist.isNotEmpty() && !isThisPlaylistDownloading) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(Color(0xFF261818))
+                                    .bouncyClickable(pressedScale = 0.95f) {
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        Toast.makeText(context, "Retrying ${failedInPlaylist.size} failed songs...", Toast.LENGTH_SHORT).show()
+                                        onDownloadAll?.invoke(failedInPlaylist)
+                                    }
+                                    .padding(horizontal = 14.dp, vertical = 10.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.ErrorOutline,
+                                            contentDescription = null,
+                                            tint = Color(0xFFFF5252),
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Text(
+                                            text = "${failedInPlaylist.size} tracks failed • Tap to retry",
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = Color(0xFFFF8A80)
+                                        )
+                                    }
+                                    Text(
+                                        text = "Retry",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White
+                                    )
+                                }
+                            }
+                        }
+
                         // ── Sub-Action Row: "Custom order ↑" and "4 tracks 🔒" ──
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -2665,7 +2661,7 @@ fun PlaylistDetailScreen(
                                 overflow = TextOverflow.Ellipsis
                             )
                             Spacer(modifier = Modifier.height(3.dp))
-                            val subtitle = if (track.album.isNotBlank()) "${track.artist} • ${track.album}" else track.artist
+                            val subtitle = com.vybe.music.data.TrackMetadataIndex.formatSubtitle(track.artist, track.album)
                             val isTrackDownloading = track.id in downloadingTrackIds
                             val isTrackQueued = track.id in queuedTrackIds
                             val isTrackDownloaded = track.id in downloadedTrackIds || downloadedTracks.any { it.id == track.id }
@@ -2986,13 +2982,13 @@ fun PlaylistDetailScreen(
                                     text = "Download all songs",
                                     leadingIcon = Icons.Rounded.Download,
                                     onClick = {
-                                        val missingCount = localTracks.count { it.id !in downloadedTrackIds && downloadedTracks.none { dt -> dt.id == it.id } }
-                                        if (missingCount == 0 && localTracks.isNotEmpty()) {
+                                        val missingTracks = localTracks.filter { it.id !in downloadedTrackIds && downloadedTracks.none { dt -> dt.id == it.id } }
+                                        if (missingTracks.isEmpty() && localTracks.isNotEmpty()) {
                                             Toast.makeText(context, "All songs already downloaded", Toast.LENGTH_SHORT).show()
-                                        } else if (missingCount > 0) {
-                                            Toast.makeText(context, "Downloading $missingCount songs...", Toast.LENGTH_SHORT).show()
+                                        } else if (missingTracks.isNotEmpty()) {
+                                            Toast.makeText(context, "Downloading ${missingTracks.size} songs...", Toast.LENGTH_SHORT).show()
                                         }
-                                        onDownloadAll?.invoke(localTracks)
+                                        onDownloadAll?.invoke(if (missingTracks.isNotEmpty()) missingTracks else localTracks)
                                         showOptionsMenu = false
                                     }
                                 )
@@ -3085,7 +3081,7 @@ fun PlaylistDetailScreen(
                         modifier = Modifier
                             .size(32.dp)
                             .clip(RoundedCornerShape(8.dp))
-                            .background(Color(0xFF1E1E22))
+                            .background(Color(0xFF1E1E1E))
                     )
                     Spacer(modifier = Modifier.width(10.dp))
                 }

@@ -27,7 +27,6 @@ import androidx.compose.ui.draw.blur
 import com.vybe.music.ui.components.PlayerOverflowMenuSheet
 import com.vybe.music.ui.components.AddToPlaylistSheet
 import com.vybe.music.ui.components.SleepTimerDialog
-import com.vybe.music.ui.components.AudioSpecsDialog
 import com.vybe.music.viewmodel.PlayerViewModel
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -39,6 +38,8 @@ import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -98,16 +99,29 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.style.TextAlign
+import com.vybe.music.ui.components.VybeSkeletonBox
+import kotlinx.coroutines.flow.MutableStateFlow
 import androidx.compose.ui.zIndex
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import androidx.media3.ui.AspectRatioFrameLayout
-import com.vybe.music.data.audio.VideoCandidate
-import com.vybe.music.data.audio.VideoQualityStream
-import com.vybe.music.data.audio.YouTubeVideoExtractor
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import com.vybe.music.data.audio.VideoCandidate
+import com.vybe.music.data.audio.VideoQualityStream
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
@@ -118,9 +132,7 @@ import com.vybe.music.model.AudioQuality
 import com.vybe.music.model.AudioTrackFormatInfo
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.Player
-import androidx.media3.ui.PlayerView
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -165,6 +177,10 @@ import coil.request.ImageRequest
 import com.vybe.music.model.RepeatMode
 import com.vybe.music.model.Track
 import com.vybe.music.ui.components.bouncyClickable
+import com.vybe.music.ui.components.vybeSpringPress
+import com.vybe.music.ui.components.vybeSpringClickable
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import com.vybe.music.ui.components.liquidGlass
 import com.vybe.music.ui.theme.HeartActive
 import com.vybe.music.ui.theme.VybeGreen
@@ -254,85 +270,50 @@ fun NowPlayingScreen(
 
     val haptic = LocalHapticFeedback.current
     val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
     val npHazeState = remember { HazeState() }
-    var showQualitySheet by remember { mutableStateOf(false) }
-    val qualitySheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val coroutineScope = rememberCoroutineScope()
+
+    // ── Tactile Micro-Animations State ─────────────────────────────────────
+    val prevNudgeX = remember { Animatable(0f) }
+    val nextNudgeX = remember { Animatable(0f) }
+    val heartBounceScale = remember { Animatable(1f) }
+    var prevFavState by remember { mutableStateOf(isFavorite) }
+    LaunchedEffect(isFavorite) {
+        if (isFavorite && !prevFavState) {
+            heartBounceScale.snapTo(1f)
+            heartBounceScale.animateTo(
+                targetValue = 1.30f,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                    stiffness = Spring.StiffnessMedium
+                )
+            )
+            heartBounceScale.animateTo(
+                targetValue = 1f,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                    stiffness = Spring.StiffnessMediumLow
+                )
+            )
+        }
+        prevFavState = isFavorite
+    }
+    val animatedHeartColor by animateColorAsState(
+        targetValue = if (isFavorite) HeartActive else Color.White,
+        animationSpec = tween(durationMillis = 220),
+        label = "heartColor"
+    )
 
     var showOverflowSheet by remember { mutableStateOf(false) }
     var showAddToPlaylistSheet by remember { mutableStateOf(false) }
     var showSleepTimerDialog by remember { mutableStateOf(false) }
-    var showAudioSpecsDialog by remember { mutableStateOf(false) }
 
     val playerBlur by animateDpAsState(
         targetValue = if (showOverflowSheet) 20.dp else 0.dp,
         animationSpec = tween(durationMillis = 250),
         label = "overflowBlur"
     )
-
-    val activeVideoPlayer = videoPlayer ?: player
-    var showInlineControls by remember { mutableStateOf(false) }
-    var isFullscreen by remember { mutableStateOf(false) }
-    var showFullscreenControls by remember { mutableStateOf(true) }
-    var showVideoQualitySheet by remember { mutableStateOf(false) }
-    val videoQualitySheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    var showChooseVideoSheet by remember { mutableStateOf(false) }
-    val chooseVideoSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    var customVideoUrlInput by remember { mutableStateOf("") }
-
-    val activity = context as? Activity
-    DisposableEffect(isFullscreen) {
-        if (isFullscreen) {
-            try {
-                activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-                activity?.window?.let { window ->
-                    val insetsController = WindowCompat.getInsetsController(window, window.decorView)
-                    insetsController.hide(WindowInsetsCompat.Type.systemBars())
-                    insetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        } else {
-            try {
-                activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-                activity?.window?.let { window ->
-                    val insetsController = WindowCompat.getInsetsController(window, window.decorView)
-                    insetsController.show(WindowInsetsCompat.Type.systemBars())
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
-        onDispose {
-            try {
-                activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-                activity?.window?.let { window ->
-                    val insetsController = WindowCompat.getInsetsController(window, window.decorView)
-                    insetsController.show(WindowInsetsCompat.Type.systemBars())
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
-    }
-
-    BackHandler(enabled = isFullscreen) {
-        isFullscreen = false
-    }
-
-    LaunchedEffect(showInlineControls, isPlaying) {
-        if (showInlineControls && isPlaying) {
-            kotlinx.coroutines.delay(3500)
-            showInlineControls = false
-        }
-    }
-
-    LaunchedEffect(showFullscreenControls, isPlaying) {
-        if (showFullscreenControls && isPlaying) {
-            kotlinx.coroutines.delay(3500)
-            showFullscreenControls = false
-        }
-    }
 
     val currentPosMs = playbackPositionState?.collectAsState()?.value ?: playbackPositionMs
     val totalDurMs = durationState?.collectAsState()?.value ?: durationMs
@@ -508,9 +489,9 @@ fun NowPlayingScreen(
                     )
             )
 
-            // ── Layer 4: Sharp hero poster / Native video stream (proportional 62% height, edge-to-edge from y = 0) ──
+            // ── Layer 4: Sharp hero poster (proportional 62% height, edge-to-edge from y = 0) ──
             // Soft BlendMode.DstIn alpha fade (0.00f..0.42f = 1.0f, 0.70f = 0.45f, 0.88f = 0.10f, 1.00f = 0.0f)
-            // so the poster/video melts 100% invisibly into the background with zero gap above song title on tall screens.
+            // so the poster melts 100% invisibly into the background with zero gap above song title on tall screens.
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -519,232 +500,32 @@ fun NowPlayingScreen(
                     .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
                     .drawWithContent {
                         drawContent()
-                        if (!isVideoMode) {
-                            drawRect(
-                                brush = Brush.verticalGradient(
-                                    0.00f to Color.Black,
-                                    0.42f to Color.Black,
-                                    0.70f to Color.Black.copy(alpha = 0.45f),
-                                    0.88f to Color.Black.copy(alpha = 0.10f),
-                                    1.00f to Color.Transparent
-                                ),
-                                blendMode = BlendMode.DstIn
-                            )
-                        }
+                        drawRect(
+                            brush = Brush.verticalGradient(
+                                0.00f to Color.Black,
+                                0.42f to Color.Black,
+                                0.70f to Color.Black.copy(alpha = 0.45f),
+                                0.88f to Color.Black.copy(alpha = 0.10f),
+                                1.00f to Color.Transparent
+                            ),
+                            blendMode = BlendMode.DstIn
+                        )
                     }
             ) {
-                val artworkAlpha by animateFloatAsState(
-                    targetValue = if (isVideoMode) 0f else 1f,
-                    animationSpec = tween(durationMillis = 280),
-                    label = "artworkAlpha"
-                )
-                if (artworkAlpha > 0.01f) {
-                    AsyncImage(
-                        model = ImageRequest.Builder(LocalContext.current)
-                            .data(highResArtworkUrl)
-                            .size(coil.size.Size.ORIGINAL)
-                            .precision(coil.size.Precision.EXACT)
-                            .crossfade(true)
-                            .build(),
-                        contentDescription = "${track.title} artwork",
-                        contentScale = ContentScale.Crop,
-                        alignment = Alignment.TopCenter,
-                        modifier = Modifier.fillMaxSize(),
-                        alpha = artworkAlpha
-                    )
-                }
-            }
-        }
-
-        // ── 16:9 Rounded Inline Video Box Centered In Artwork Slot ──
-        if (isVideoMode && activeVideoPlayer != null && !isFullscreen) {
-            val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .fillMaxHeight(0.60f)
-                    .padding(top = statusBarTop + 48.dp)
-                    .align(Alignment.TopCenter),
-                contentAlignment = Alignment.Center
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp)
-                        .aspectRatio(16f / 9f)
-                        .clip(RoundedCornerShape(20.dp))
-                        .clipToBounds()
-                        .background(Color(0xFF0F0F12))
-                        .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(20.dp))
-                ) {
-                    AndroidView(
-                        factory = { ctx ->
-                            (LayoutInflater.from(ctx).inflate(R.layout.view_video_player, null, false) as PlayerView).apply {
-                                this.player = activeVideoPlayer
-                                useController = false
-                                controllerAutoShow = false
-                                setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
-                                resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                            }
-                        },
-                        update = { view ->
-                            if (view.player != activeVideoPlayer) {
-                                view.player = activeVideoPlayer
-                            }
-                        },
-                        onRelease = { view ->
-                            view.player = null
-                        },
-                        modifier = Modifier.fillMaxSize()
-                    )
-
-                    // Click overlay to toggle inline video controls
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .pointerInput(Unit) {
-                                detectTapGestures(
-                                    onTap = {
-                                        showInlineControls = !showInlineControls
-                                    }
-                                )
-                            }
-                    )
-
-                    // Subtle CircularProgressIndicator inside 16:9 box while resolving/loading
-                    if (isVideoLoading) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(Color.Black.copy(alpha = 0.45f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(34.dp),
-                                color = Color.White,
-                                strokeWidth = 2.5.dp
-                            )
-                        }
-                    }
-
-                // Inline Video Overlay Controls (Auto-Hiding)
-                AnimatedVisibility(
-                    visible = showInlineControls,
-                    enter = fadeIn(tween(180)),
-                    exit = fadeOut(tween(180)),
+                AsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(highResArtworkUrl)
+                        .size(coil.size.Size.ORIGINAL)
+                        .precision(coil.size.Precision.EXACT)
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = "${track.title} artwork",
+                    contentScale = ContentScale.Crop,
+                    alignment = Alignment.TopCenter,
                     modifier = Modifier.fillMaxSize()
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(
-                                Brush.verticalGradient(
-                                    0.0f to Color.Black.copy(alpha = 0.70f),
-                                    0.45f to Color.Transparent,
-                                    1.0f to Color.Black.copy(alpha = 0.65f)
-                                )
-                            )
-                            .padding(horizontal = 10.dp, vertical = 8.dp)
-                    ) {
-                        // Top-left: • SYNCED
-                        Row(
-                            modifier = Modifier.align(Alignment.TopStart),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .background(Color.Black.copy(alpha = 0.65f), CircleShape)
-                                    .border(0.75.dp, Color.White.copy(alpha = 0.25f), CircleShape)
-                                    .padding(horizontal = 8.dp, vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(5.dp)
-                                        .background(Color(0xFF4CAF50), CircleShape)
-                                )
-                                Text(
-                                    text = "SYNCED",
-                                    color = Color.White,
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    letterSpacing = 0.8.sp
-                                )
-                            }
-                        }
-
-                        // Top-right: HD + Fullscreen (⛶) + Close (✕)
-                        Row(
-                            modifier = Modifier.align(Alignment.TopEnd),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            // HD Quality Pill
-                            Box(
-                                modifier = Modifier
-                                    .background(Color.Black.copy(alpha = 0.65f), CircleShape)
-                                    .border(0.75.dp, Color.White.copy(alpha = 0.25f), CircleShape)
-                                    .bouncyClickable(pressedScale = 0.92f) {
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        showVideoQualitySheet = true
-                                    }
-                                    .padding(horizontal = 9.dp, vertical = 4.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = if (selectedVideoQuality.contains("Auto")) "HD" else selectedVideoQuality,
-                                    color = Color.White,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            }
-
-                            // Fullscreen (⛶) Button
-                            Box(
-                                modifier = Modifier
-                                    .size(30.dp)
-                                    .background(Color.Black.copy(alpha = 0.65f), CircleShape)
-                                    .border(0.75.dp, Color.White.copy(alpha = 0.25f), CircleShape)
-                                    .bouncyClickable(pressedScale = 0.88f) {
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        isFullscreen = true
-                                    },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Fullscreen,
-                                    contentDescription = "Fullscreen",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-
-                            // Close (✕) Button
-                            Box(
-                                modifier = Modifier
-                                    .size(30.dp)
-                                    .background(Color.Black.copy(alpha = 0.65f), CircleShape)
-                                    .border(0.75.dp, Color.White.copy(alpha = 0.25f), CircleShape)
-                                    .bouncyClickable(pressedScale = 0.88f) {
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        onCloseVideo()
-                                    },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Close,
-                                    contentDescription = "Close video",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            }
-                        }
-                    }
-                }
+                )
             }
         }
-    }
 
         // ── Layer 5: Top navigation header ────────────────────────────────────
         Row(
@@ -761,7 +542,7 @@ fun NowPlayingScreen(
                     .size(44.dp)
                     .clip(CircleShape)
                     .nowPlayingGlassButton(hazeState = npHazeState, shape = CircleShape)
-                    .bouncyClickable(pressedScale = 0.85f) {
+                    .vybeSpringClickable(pressedScale = 0.88f) {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         onCollapseClick()
                     },
@@ -807,7 +588,7 @@ fun NowPlayingScreen(
                     .size(44.dp)
                     .clip(CircleShape)
                     .nowPlayingGlassButton(hazeState = npHazeState, shape = CircleShape)
-                    .bouncyClickable(pressedScale = 0.85f) {
+                    .vybeSpringClickable(pressedScale = 0.88f) {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         showOverflowSheet = true
                     },
@@ -866,47 +647,28 @@ fun NowPlayingScreen(
                     )
                 }
 
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                // Like button: 50.dp circle with 22.dp icon and celebratory bounce
+                Box(
+                    modifier = Modifier
+                        .size(50.dp)
+                        .nowPlayingGlassButton(hazeState = npHazeState, shape = CircleShape)
+                        .vybeSpringClickable(pressedScale = 0.85f) {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onFavoriteToggle()
+                        },
+                    contentAlignment = Alignment.Center
                 ) {
-                    // Like button: 50.dp circle with 22.dp icon
-                    Box(
+                    Icon(
+                        imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                        contentDescription = if (isFavorite) "Unlike" else "Like",
+                        tint = animatedHeartColor,
                         modifier = Modifier
-                            .size(50.dp)
-                            .nowPlayingGlassButton(hazeState = npHazeState, shape = CircleShape)
-                            .bouncyClickable(pressedScale = 0.82f) {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                onFavoriteToggle()
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                            contentDescription = if (isFavorite) "Unlike" else "Like",
-                            tint = if (isFavorite) HeartActive else Color.White,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
-
-                    // Lyrics button: 50.dp circle with 22.dp icon
-                    Box(
-                        modifier = Modifier
-                            .size(50.dp)
-                            .nowPlayingGlassButton(hazeState = npHazeState, shape = CircleShape)
-                            .bouncyClickable(pressedScale = 0.82f) {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                onLyricsClick()
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.FormatQuote,
-                            contentDescription = "Lyrics",
-                            tint = Color.White,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
+                            .size(22.dp)
+                            .graphicsLayer {
+                                scaleX = heartBounceScale.value
+                                scaleY = heartBounceScale.value
+                            }
+                    )
                 }
             }
 
@@ -956,14 +718,9 @@ fun NowPlayingScreen(
 
             Spacer(modifier = Modifier.height(6.dp))
 
-            // ── Audio quality label: clean, borderless centered text ───
+            // ── Audio quality label: frozen, completely non-clickable status readout ───
             Box(
-                modifier = Modifier
-                    .bouncyClickable(pressedScale = 0.95f) {
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        showQualitySheet = true
-                    }
-                    .padding(horizontal = 10.dp, vertical = 4.dp),
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Row(
@@ -983,13 +740,6 @@ fun NowPlayingScreen(
                         fontWeight = FontWeight.Medium,
                         color = Color.White.copy(alpha = 0.85f)
                     )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Icon(
-                        imageVector = Icons.Default.ChevronRight,
-                        contentDescription = null,
-                        tint = Color.White.copy(alpha = 0.50f),
-                        modifier = Modifier.size(13.dp)
-                    )
                 }
             }
 
@@ -1001,13 +751,24 @@ fun NowPlayingScreen(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Previous: 64.dp circle
+                // Previous: 64.dp circle with -5.dp tactile nudge kick
+                val prevInteractionSource = remember { MutableInteractionSource() }
                 Box(
                     modifier = Modifier
                         .size(64.dp)
                         .nowPlayingGlassButton(hazeState = npHazeState, shape = CircleShape)
-                        .bouncyClickable(pressedScale = 0.84f) {
+                        .vybeSpringClickable(pressedScale = 0.88f, interactionSource = prevInteractionSource) {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            coroutineScope.launch {
+                                prevNudgeX.snapTo(-5f)
+                                prevNudgeX.animateTo(
+                                    targetValue = 0f,
+                                    animationSpec = spring(
+                                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                                        stiffness = Spring.StiffnessMediumLow
+                                    )
+                                )
+                            }
                             onPreviousClick()
                         },
                     contentAlignment = Alignment.Center
@@ -1016,27 +777,39 @@ fun NowPlayingScreen(
                         imageVector = Icons.Default.SkipPrevious,
                         contentDescription = "Previous",
                         tint = Color.White,
-                        modifier = Modifier.size(28.dp)
+                        modifier = Modifier
+                            .size(28.dp)
+                            .graphicsLayer {
+                                translationX = prevNudgeX.value.dp.toPx()
+                            }
                     )
                 }
 
-                // Play / Pause: 64.dp tall pill (weight 1f)
+                // Play / Pause: 64.dp tall pill (weight 1f) with scale + fade crossfade and elevation response
+                val playPauseInteractionSource = remember { MutableInteractionSource() }
+                val isPlayPausePressed by playPauseInteractionSource.collectIsPressedAsState()
+                val pillAlpha by animateFloatAsState(
+                    targetValue = if (isPlayPausePressed) 0.85f else 1.0f,
+                    animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium),
+                    label = "pill_alpha"
+                )
                 Box(
                     modifier = Modifier
                         .weight(1f)
                         .height(64.dp)
+                        .graphicsLayer { alpha = pillAlpha }
                         .nowPlayingGlassButton(hazeState = npHazeState, shape = CircleShape)
-                        .bouncyClickable(pressedScale = 0.92f) {
+                        .vybeSpringClickable(pressedScale = 0.93f, interactionSource = playPauseInteractionSource) {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             onPlayPauseClick()
                         },
                     contentAlignment = Alignment.Center
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        if (isBuffering) {
+                    if (isBuffering) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
                             CircularProgressIndicator(
                                 modifier = Modifier.size(24.dp),
                                 color = Color.White,
@@ -1049,31 +822,56 @@ fun NowPlayingScreen(
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 16.sp
                             )
-                        } else {
-                            Icon(
-                                imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                contentDescription = if (isPlaying) "Pause" else "Play",
-                                tint = Color.White,
-                                modifier = Modifier.size(26.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = if (isPlaying) "Pause" else "Play",
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 16.sp
-                            )
+                        }
+                    } else {
+                        AnimatedContent(
+                            targetState = isPlaying,
+                            transitionSpec = {
+                                (scaleIn(initialScale = 0.82f) + fadeIn(tween(180)))
+                                    .togetherWith(scaleOut(targetScale = 0.82f) + fadeOut(tween(140)))
+                            },
+                            label = "play_pause_content"
+                        ) { playing ->
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    imageVector = if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                    contentDescription = if (playing) "Pause" else "Play",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(26.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = if (playing) "Pause" else "Play",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 16.sp
+                                )
+                            }
                         }
                     }
                 }
 
-                // Next: 64.dp circle
+                // Next: 64.dp circle with +5.dp tactile nudge kick
+                val nextInteractionSource = remember { MutableInteractionSource() }
                 Box(
                     modifier = Modifier
                         .size(64.dp)
                         .nowPlayingGlassButton(hazeState = npHazeState, shape = CircleShape)
-                        .bouncyClickable(pressedScale = 0.84f) {
+                        .vybeSpringClickable(pressedScale = 0.88f, interactionSource = nextInteractionSource) {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            coroutineScope.launch {
+                                nextNudgeX.snapTo(5f)
+                                nextNudgeX.animateTo(
+                                    targetValue = 0f,
+                                    animationSpec = spring(
+                                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                                        stiffness = Spring.StiffnessMediumLow
+                                    )
+                                )
+                            }
                             onNextClick()
                         },
                     contentAlignment = Alignment.Center
@@ -1082,7 +880,11 @@ fun NowPlayingScreen(
                         imageVector = Icons.Default.SkipNext,
                         contentDescription = "Next",
                         tint = Color.White,
-                        modifier = Modifier.size(30.dp)
+                        modifier = Modifier
+                            .size(30.dp)
+                            .graphicsLayer {
+                                translationX = nextNudgeX.value.dp.toPx()
+                            }
                     )
                 }
             }
@@ -1095,972 +897,178 @@ fun NowPlayingScreen(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Shuffle: 46.dp tall pill (monochrome dark smoked glass)
+                // Shuffle: 46.dp tall pill
                 val isShuffleActive = isShuffleEnabled
-                val shuffleIconScale = remember { Animatable(1f) }
-                var isShuffleInitial by remember { mutableStateOf(true) }
-                LaunchedEffect(isShuffleActive) {
-                    if (isShuffleInitial) {
-                        isShuffleInitial = false
-                        return@LaunchedEffect
-                    }
-                    shuffleIconScale.snapTo(1f)
-                    shuffleIconScale.animateTo(
-                        targetValue = 1.15f,
-                        animationSpec = tween(durationMillis = 90, easing = FastOutSlowInEasing)
-                    )
-                    shuffleIconScale.animateTo(
-                        targetValue = 1f,
-                        animationSpec = spring(
-                            dampingRatio = Spring.DampingRatioMediumBouncy,
-                            stiffness = Spring.StiffnessMedium
-                        )
-                    )
-                }
+                val shuffleIconOffset by animateDpAsState(
+                    targetValue = if (isShuffleActive) (-2).dp else 0.dp,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessMedium
+                    ),
+                    label = "shuffleIconOffset"
+                )
+                val shuffleDotScale by animateFloatAsState(
+                    targetValue = if (isShuffleActive) 1f else 0f,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessMedium
+                    ),
+                    label = "shuffleDotScale"
+                )
+                val shuffleDotAlpha by animateFloatAsState(
+                    targetValue = if (isShuffleActive) 1f else 0f,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessMedium
+                    ),
+                    label = "shuffleDotAlpha"
+                )
 
                 Box(
                     modifier = Modifier
                         .weight(1f)
                         .height(46.dp)
                         .nowPlayingGlassButton(hazeState = npHazeState, shape = CircleShape)
-                        .bouncyClickable(pressedScale = 0.88f) {
+                        .vybeSpringClickable(pressedScale = 0.90f) {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             onShuffleToggle()
                         },
                     contentAlignment = Alignment.Center
                 ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Shuffle,
-                            contentDescription = "Shuffle",
-                            tint = Color.White,
+                    // Keep icons always Color.White with animated bottom dot when active
+                    Icon(
+                        imageVector = Icons.Default.Shuffle,
+                        contentDescription = "Shuffle",
+                        tint = Color.White,
+                        modifier = Modifier
+                            .size(20.dp)
+                            .offset(y = shuffleIconOffset)
+                    )
+                    if (shuffleDotAlpha > 0.005f) {
+                        Box(
                             modifier = Modifier
-                                .size(20.dp)
+                                .offset(y = shuffleIconOffset + 14.5.dp)
+                                .size(4.5.dp)
                                 .graphicsLayer {
-                                    scaleX = shuffleIconScale.value
-                                    scaleY = shuffleIconScale.value
+                                    scaleX = shuffleDotScale
+                                    scaleY = shuffleDotScale
+                                    alpha = shuffleDotAlpha
                                 }
+                                .clip(CircleShape)
+                                .background(Color.White)
                         )
-                        AnimatedVisibility(
-                            visible = isShuffleActive,
-                            enter = scaleIn(spring(dampingRatio = Spring.DampingRatioMediumBouncy)) + fadeIn(),
-                            exit = scaleOut() + fadeOut()
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Spacer(modifier = Modifier.height(3.dp))
-                                Box(
-                                    modifier = Modifier
-                                        .size(4.dp)
-                                        .clip(CircleShape)
-                                        .background(Color.White)
-                                )
-                            }
-                        }
                     }
                 }
 
-                // Split Center Pill: 46.dp tall pill (Left: Download, Right: YouTube, separated by 1.dp divider)
+                // Download pill button: 46.dp tall pill with checkmark pop-in animation
                 Box(
                     modifier = Modifier
                         .weight(1f)
                         .height(46.dp)
                         .nowPlayingGlassButton(hazeState = npHazeState, shape = CircleShape)
-                        .clip(CircleShape),
+                        .vybeSpringClickable(pressedScale = 0.90f) {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onDownloadClick()
+                        },
                     contentAlignment = Alignment.Center
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // Left half: Download icon / progress / check
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxHeight()
-                                .bouncyClickable(pressedScale = 0.88f) {
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    onDownloadClick()
-                                },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            if (isDownloading) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(19.dp),
-                                    color = Color.White,
-                                    strokeWidth = 2.dp
-                                )
-                            } else if (isDownloaded) {
-                                Icon(
-                                    imageVector = Icons.Rounded.DownloadDone,
-                                    contentDescription = "Downloaded",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(21.dp)
-                                )
-                            } else {
-                                Icon(
-                                    imageVector = Icons.Rounded.Download,
-                                    contentDescription = "Download",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(21.dp)
-                                )
-                            }
-                        }
-
-                        // Subtle vertical divider: 1.dp width, Color.White.copy(alpha = 0.2f)
-                        Box(
-                            modifier = Modifier
-                                .width(1.dp)
-                                .height(20.dp)
-                                .background(Color.White.copy(alpha = 0.2f))
-                        )
-
-                        // Right half: YouTube icon
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxHeight()
-                                .bouncyClickable(pressedScale = 0.88f) {
-                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    onYouTubeClick()
-                                },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            if (isYouTubeResolving) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(19.dp),
-                                    color = Color.White,
-                                    strokeWidth = 2.dp
-                                )
-                            } else {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_youtube),
-                                    contentDescription = "YouTube",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(22.dp)
-                                )
-                            }
+                    AnimatedContent(
+                        targetState = isDownloaded,
+                        transitionSpec = {
+                            (scaleIn(spring(dampingRatio = Spring.DampingRatioMediumBouncy)) + fadeIn())
+                                .togetherWith(scaleOut() + fadeOut())
+                        },
+                        label = "download_status"
+                    ) { downloaded ->
+                        if (isDownloading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(19.dp),
+                                color = Color.White,
+                                strokeWidth = 2.dp
+                            )
+                        } else if (downloaded) {
+                            Icon(
+                                imageVector = Icons.Rounded.DownloadDone,
+                                contentDescription = "Downloaded",
+                                tint = Color.White,
+                                modifier = Modifier.size(21.dp)
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Rounded.Download,
+                                contentDescription = "Download",
+                                tint = Color.White,
+                                modifier = Modifier.size(21.dp)
+                            )
                         }
                     }
                 }
 
-                // Repeat: 46.dp tall pill (monochrome dark smoked glass)
+                // Repeat: 46.dp tall pill
                 val isRepeatActive = repeatMode != RepeatMode.OFF
-                val repeatIconScale = remember { Animatable(1f) }
-                var isRepeatInitial by remember { mutableStateOf(true) }
-                LaunchedEffect(repeatMode) {
-                    if (isRepeatInitial) {
-                        isRepeatInitial = false
-                        return@LaunchedEffect
-                    }
-                    repeatIconScale.snapTo(1f)
-                    repeatIconScale.animateTo(
-                        targetValue = 1.15f,
-                        animationSpec = tween(durationMillis = 90, easing = FastOutSlowInEasing)
-                    )
-                    repeatIconScale.animateTo(
-                        targetValue = 1f,
-                        animationSpec = spring(
-                            dampingRatio = Spring.DampingRatioMediumBouncy,
-                            stiffness = Spring.StiffnessMedium
-                        )
-                    )
-                }
+                val repeatIconOffset by animateDpAsState(
+                    targetValue = if (isRepeatActive) (-2).dp else 0.dp,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessMedium
+                    ),
+                    label = "repeatIconOffset"
+                )
+                val repeatDotScale by animateFloatAsState(
+                    targetValue = if (isRepeatActive) 1f else 0f,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessMedium
+                    ),
+                    label = "repeatDotScale"
+                )
+                val repeatDotAlpha by animateFloatAsState(
+                    targetValue = if (isRepeatActive) 1f else 0f,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessMedium
+                    ),
+                    label = "repeatDotAlpha"
+                )
 
                 Box(
                     modifier = Modifier
                         .weight(1f)
                         .height(46.dp)
                         .nowPlayingGlassButton(hazeState = npHazeState, shape = CircleShape)
-                        .bouncyClickable(pressedScale = 0.88f) {
+                        .vybeSpringClickable(pressedScale = 0.90f) {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             onRepeatToggle()
                         },
                     contentAlignment = Alignment.Center
                 ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        Icon(
-                            imageVector = if (repeatMode == RepeatMode.ONE) Icons.Default.RepeatOne else Icons.Default.Repeat,
-                            contentDescription = "Repeat",
-                            tint = Color.White,
-                            modifier = Modifier
-                                .size(20.dp)
-                                .graphicsLayer {
-                                    scaleX = repeatIconScale.value
-                                    scaleY = repeatIconScale.value
-                                }
-                        )
-                        AnimatedVisibility(
-                            visible = isRepeatActive,
-                            enter = scaleIn(spring(dampingRatio = Spring.DampingRatioMediumBouncy)) + fadeIn(),
-                            exit = scaleOut() + fadeOut()
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Spacer(modifier = Modifier.height(3.dp))
-                                Box(
-                                    modifier = Modifier
-                                        .size(4.dp)
-                                        .clip(CircleShape)
-                                        .background(Color.White)
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // ── Immersive Landscape Fullscreen Video Overlay ────────────────────
-        if (isFullscreen && isVideoMode && activeVideoPlayer != null) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black)
-                    .zIndex(999f)
-            ) {
-                // Video TextureView (fit mode so nothing is cropped)
-                AndroidView(
-                    factory = { ctx ->
-                        (LayoutInflater.from(ctx).inflate(R.layout.view_video_player, null, false) as PlayerView).apply {
-                            this.player = activeVideoPlayer
-                            useController = false
-                            controllerAutoShow = false
-                            setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
-                            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-                        }
-                    },
-                    update = { view ->
-                        if (view.player != activeVideoPlayer) {
-                            view.player = activeVideoPlayer
-                        }
-                    },
-                    onRelease = { view ->
-                        view.player = null
-                    },
-                    modifier = Modifier.fillMaxSize()
-                )
-
-                // Tap detector for fullscreen controls
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .pointerInput(Unit) {
-                            detectTapGestures(
-                                onTap = {
-                                    showFullscreenControls = !showFullscreenControls
-                                }
-                            )
-                        }
-                )
-
-                // Fullscreen HUD overlay
-                AnimatedVisibility(
-                    visible = showFullscreenControls,
-                    enter = fadeIn(tween(200)),
-                    exit = fadeOut(tween(200)),
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(
-                                Brush.verticalGradient(
-                                    0.0f to Color.Black.copy(alpha = 0.80f),
-                                    0.25f to Color.Transparent,
-                                    0.75f to Color.Transparent,
-                                    1.0f to Color.Black.copy(alpha = 0.85f)
-                                )
-                            )
-                    ) {
-                        // ── Top Bar ──
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .align(Alignment.TopCenter)
-                                .padding(horizontal = 24.dp, vertical = 16.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            // Left: Back (<) + Song Title & Artist
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                                modifier = Modifier.weight(1f, fill = false)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(38.dp)
-                                        .background(Color.Black.copy(alpha = 0.55f), CircleShape)
-                                        .border(0.75.dp, Color.White.copy(alpha = 0.25f), CircleShape)
-                                        .bouncyClickable(pressedScale = 0.88f) {
-                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                            isFullscreen = false
-                                        },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
-                                        contentDescription = "Exit fullscreen",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-
-                                Column {
-                                    Text(
-                                        text = track.title,
-                                        color = Color.White,
-                                        fontSize = 16.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        maxLines = 1
-                                    )
-                                    Text(
-                                        text = track.artist,
-                                        color = Color.White.copy(alpha = 0.7f),
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Normal,
-                                        maxLines = 1
-                                    )
-                                }
-                            }
-
-                            // Right: • SYNCED, 🔍 Choose video, HD Auto, ✕ Close
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                // SYNCED Pill
-                                Row(
-                                    modifier = Modifier
-                                        .background(Color.Black.copy(alpha = 0.65f), CircleShape)
-                                        .border(0.75.dp, Color.White.copy(alpha = 0.25f), CircleShape)
-                                        .padding(horizontal = 10.dp, vertical = 6.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(5.dp)
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(6.dp)
-                                            .background(Color(0xFF4CAF50), CircleShape)
-                                    )
-                                    Text(
-                                        text = "SYNCED",
-                                        color = Color.White,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        letterSpacing = 0.8.sp
-                                    )
-                                }
-
-                                // 🔍 Choose video
-                                Row(
-                                    modifier = Modifier
-                                        .background(Color.Black.copy(alpha = 0.65f), CircleShape)
-                                        .border(0.75.dp, Color.White.copy(alpha = 0.25f), CircleShape)
-                                        .bouncyClickable(pressedScale = 0.92f) {
-                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                            onSearchAlternateVideos("")
-                                            showChooseVideoSheet = true
-                                        }
-                                        .padding(horizontal = 10.dp, vertical = 6.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.Search,
-                                        contentDescription = "Choose video",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(14.dp)
-                                    )
-                                    Text(
-                                        text = "Choose video",
-                                        color = Color.White,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                }
-
-                                // HD Quality Pill
-                                Box(
-                                    modifier = Modifier
-                                        .background(Color.Black.copy(alpha = 0.65f), CircleShape)
-                                        .border(0.75.dp, Color.White.copy(alpha = 0.25f), CircleShape)
-                                        .bouncyClickable(pressedScale = 0.92f) {
-                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                            showVideoQualitySheet = true
-                                        }
-                                        .padding(horizontal = 10.dp, vertical = 6.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = if (selectedVideoQuality.contains("Auto")) "HD Auto" else selectedVideoQuality,
-                                        color = Color.White,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                }
-
-                                // Close (✕) Button
-                                Box(
-                                    modifier = Modifier
-                                        .size(36.dp)
-                                        .background(Color.Black.copy(alpha = 0.65f), CircleShape)
-                                        .border(0.75.dp, Color.White.copy(alpha = 0.25f), CircleShape)
-                                        .bouncyClickable(pressedScale = 0.88f) {
-                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                            isFullscreen = false
-                                            onCloseVideo()
-                                        },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.Close,
-                                        contentDescription = "Close video",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                            }
-                        }
-
-                        // ── Center Controls (-10s, Play/Pause, +10s) ──
-                        Row(
-                            modifier = Modifier.align(Alignment.Center),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(36.dp)
-                        ) {
-                            // -10s Button
-                            Box(
-                                modifier = Modifier
-                                    .size(52.dp)
-                                    .background(Color.Black.copy(alpha = 0.55f), CircleShape)
-                                    .border(0.75.dp, Color.White.copy(alpha = 0.25f), CircleShape)
-                                    .bouncyClickable(pressedScale = 0.88f) {
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        onSeekRelative(-10000L)
-                                    },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Replay10,
-                                    contentDescription = "Rewind 10 seconds",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(28.dp)
-                                )
-                            }
-
-                            // Play/Pause Button
-                            Box(
-                                modifier = Modifier
-                                    .size(68.dp)
-                                    .background(Color.White.copy(alpha = 0.25f), CircleShape)
-                                    .border(1.dp, Color.White.copy(alpha = 0.4f), CircleShape)
-                                    .bouncyClickable(pressedScale = 0.90f) {
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        onPlayPauseClick()
-                                    },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                                    contentDescription = if (isPlaying) "Pause" else "Play",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(38.dp)
-                                )
-                            }
-
-                            // +10s Button
-                            Box(
-                                modifier = Modifier
-                                    .size(52.dp)
-                                    .background(Color.Black.copy(alpha = 0.55f), CircleShape)
-                                    .border(0.75.dp, Color.White.copy(alpha = 0.25f), CircleShape)
-                                    .bouncyClickable(pressedScale = 0.88f) {
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        onSeekRelative(10000L)
-                                    },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Forward10,
-                                    contentDescription = "Forward 10 seconds",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(28.dp)
-                                )
-                            }
-                        }
-
-                        // ── Bottom Bar (Synced Seekbar + Exit Fullscreen ⛶) ──
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .align(Alignment.BottomCenter)
-                                .padding(horizontal = 28.dp, vertical = 20.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = Track.formatDuration(currentDisplayMs),
-                                color = Color.White,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
-
-                            // Sleek synced slider
-                            androidx.compose.material3.Slider(
-                                value = currentFraction,
-                                onValueChange = { frac ->
-                                    isDraggingSlider = true
-                                    dragSliderFraction = frac
-                                },
-                                onValueChangeFinished = {
-                                    val targetMs = (dragSliderFraction * totalDurMs).toLong()
-                                    pendingSeekMs = targetMs
-                                    pendingSeekTime = System.currentTimeMillis()
-                                    isDraggingSlider = false
-                                    onSeek(targetMs)
-                                },
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .padding(horizontal = 14.dp),
-                                colors = androidx.compose.material3.SliderDefaults.colors(
-                                    thumbColor = Color.White,
-                                    activeTrackColor = Color.White,
-                                    inactiveTrackColor = Color.White.copy(alpha = 0.25f)
-                                )
-                            )
-
-                            Text(
-                                text = Track.formatDuration(totalDurMs),
-                                color = Color.White.copy(alpha = 0.7f),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Normal
-                            )
-
-                            Spacer(modifier = Modifier.width(16.dp))
-
-                            // Exit Fullscreen (⛶) Button
-                            Box(
-                                modifier = Modifier
-                                    .size(38.dp)
-                                    .background(Color.Black.copy(alpha = 0.55f), CircleShape)
-                                    .border(0.75.dp, Color.White.copy(alpha = 0.25f), CircleShape)
-                                    .bouncyClickable(pressedScale = 0.88f) {
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        isFullscreen = false
-                                    },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.FullscreenExit,
-                                    contentDescription = "Exit fullscreen",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(22.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    if (showQualitySheet) {
-        ModalBottomSheet(
-            onDismissRequest = { showQualitySheet = false },
-            sheetState = qualitySheetState,
-            containerColor = Color(0xFF141417),
-            scrimColor = Color.Black.copy(alpha = 0.65f),
-            shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 22.dp, vertical = 12.dp)
-                    .padding(bottom = 36.dp)
-            ) {
-                Text(
-                    text = "Streaming Audio Quality",
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "Active stream: ${audioFormatInfo.label}",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Normal,
-                    color = Color(0xFF8E8E93)
-                )
-
-                Spacer(modifier = Modifier.height(18.dp))
-
-                AudioQuality.values().forEach { quality ->
-                    val isSelected = quality == streamingQuality
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 5.dp)
-                            .clip(RoundedCornerShape(18.dp))
-                            .background(if (isSelected) Color(0xFF222228) else Color(0xFF1A1A1E))
-                            .border(
-                                width = if (isSelected) 1.2.dp else 0.dp,
-                                color = if (isSelected) Color.White.copy(alpha = 0.35f) else Color.Transparent,
-                                shape = RoundedCornerShape(18.dp)
-                            )
-                            .bouncyClickable(pressedScale = 0.97f) {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                onQualitySelected(quality)
-                                showQualitySheet = false
-                            }
-                            .padding(horizontal = 18.dp, vertical = 14.dp)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = quality.title,
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White
-                                )
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    text = quality.subtitle,
-                                    fontSize = 12.5.sp,
-                                    color = if (isSelected) Color.White.copy(alpha = 0.85f) else Color(0xFF8E8E93)
-                                )
-                            }
-                            if (isSelected) {
-                                Icon(
-                                    imageVector = Icons.Default.Check,
-                                    contentDescription = "Selected",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // ── Video Quality Bottom Sheet ──────────────────────────────────────────
-    if (showVideoQualitySheet) {
-        ModalBottomSheet(
-            onDismissRequest = { showVideoQualitySheet = false },
-            sheetState = videoQualitySheetState,
-            containerColor = Color(0xFF141418),
-            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 24.dp)
-                    .padding(bottom = 32.dp)
-            ) {
-                Text(
-                    text = "Video Quality",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
-                Text(
-                    text = "Ad-free direct stream quality",
-                    fontSize = 12.sp,
-                    color = Color.White.copy(alpha = 0.5f),
-                    modifier = Modifier.padding(top = 2.dp, bottom = 18.dp)
-                )
-
-                val qualityOptions = remember(availableVideoQualities) {
-                    val list = mutableListOf("Auto (Recommended)")
-                    val standardQualities = listOf("1080p", "720p", "480p", "360p", "240p")
-                    standardQualities.forEach { q ->
-                        if (availableVideoQualities.any { it.qualityLabel.contains(q, ignoreCase = true) }) {
-                            list.add(q)
-                        }
-                    }
-                    if (list.size == 1) {
-                        list.addAll(listOf("1080p", "720p", "480p", "360p", "240p"))
-                    }
-                    list
-                }
-
-                qualityOptions.forEach { qOption ->
-                    val isSelected = (qOption.startsWith("Auto") && selectedVideoQuality.contains("Auto")) ||
-                            (!qOption.startsWith("Auto") && selectedVideoQuality.contains(qOption))
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(52.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .bouncyClickable(pressedScale = 0.96f) {
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                onQualitySelect(if (qOption.startsWith("Auto")) "HD Auto" else qOption)
-                                showVideoQualitySheet = false
-                            }
-                            .background(if (isSelected) Color.White.copy(alpha = 0.08f) else Color.Transparent)
-                            .padding(horizontal = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Text(
-                                text = qOption,
-                                color = if (isSelected) Color.White else Color.White.copy(alpha = 0.75f),
-                                fontSize = 15.sp,
-                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
-                            )
-                            if (qOption == "1080p") {
-                                Text(
-                                    text = "Full HD",
-                                    fontSize = 11.sp,
-                                    color = Color(0xFF4CAF50),
-                                    fontWeight = FontWeight.Bold
-                                )
-                            } else if (qOption == "720p") {
-                                Text(
-                                    text = "HD",
-                                    fontSize = 11.sp,
-                                    color = Color(0xFF2196F3),
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
-
-                        if (isSelected) {
-                            Icon(
-                                imageVector = Icons.Rounded.Check,
-                                contentDescription = "Selected",
-                                tint = Color(0xFF4CAF50),
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // ── Choose Video Bottom Sheet ───────────────────────────────────────────
-    if (showChooseVideoSheet) {
-        ModalBottomSheet(
-            onDismissRequest = { showChooseVideoSheet = false },
-            sheetState = chooseVideoSheetState,
-            containerColor = Color(0xFF141418),
-            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp)
-                    .padding(bottom = 32.dp)
-            ) {
-                Text(
-                    text = "Find the Right Video",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
-                Text(
-                    text = "Alternate music videos & live performances",
-                    fontSize = 12.sp,
-                    color = Color.White.copy(alpha = 0.5f),
-                    modifier = Modifier.padding(top = 2.dp, bottom = 14.dp)
-                )
-
-                // Paste custom URL or 11-char Video ID input
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp)
-                        .background(Color.White.copy(alpha = 0.08f), RoundedCornerShape(12.dp))
-                        .border(0.75.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(12.dp))
-                        .padding(horizontal = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                    // Keep icons always Color.White with animated bottom dot when active
                     Icon(
-                        imageVector = Icons.Rounded.Search,
-                        contentDescription = null,
-                        tint = Color.White.copy(alpha = 0.5f),
-                        modifier = Modifier.size(18.dp)
+                        imageVector = if (repeatMode == RepeatMode.ONE) Icons.Default.RepeatOne else Icons.Default.Repeat,
+                        contentDescription = "Repeat",
+                        tint = Color.White,
+                        modifier = Modifier
+                            .size(20.dp)
+                            .offset(y = repeatIconOffset)
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Box(modifier = Modifier.weight(1f)) {
-                        if (customVideoUrlInput.isEmpty()) {
-                            Text(
-                                text = "Paste YouTube link or video ID...",
-                                color = Color.White.copy(alpha = 0.4f),
-                                fontSize = 13.sp
-                            )
-                        }
-                        BasicTextField(
-                            value = customVideoUrlInput,
-                            onValueChange = { customVideoUrlInput = it },
-                            singleLine = true,
-                            textStyle = androidx.compose.ui.text.TextStyle(
-                                color = Color.White,
-                                fontSize = 13.sp
-                            ),
-                            modifier = Modifier.fillMaxWidth(),
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
-                            keyboardActions = KeyboardActions(onGo = {
-                                val extractedId = YouTubeVideoExtractor.extractVideoId(customVideoUrlInput)
-                                if (extractedId != null) {
-                                    onSelectAlternateVideo(extractedId)
-                                    showChooseVideoSheet = false
-                                } else {
-                                    android.widget.Toast.makeText(context, "Invalid YouTube link or ID", android.widget.Toast.LENGTH_SHORT).show()
-                                }
-                            })
-                        )
-                    }
-                    if (customVideoUrlInput.isNotBlank()) {
+                    if (repeatDotAlpha > 0.005f) {
                         Box(
                             modifier = Modifier
-                                .background(Color.White.copy(alpha = 0.2f), RoundedCornerShape(8.dp))
-                                .bouncyClickable(pressedScale = 0.90f) {
-                                    val extractedId = YouTubeVideoExtractor.extractVideoId(customVideoUrlInput)
-                                    if (extractedId != null) {
-                                        onSelectAlternateVideo(extractedId)
-                                        showChooseVideoSheet = false
-                                    } else {
-                                        android.widget.Toast.makeText(context, "Invalid YouTube link or ID", android.widget.Toast.LENGTH_SHORT).show()
-                                    }
+                                .offset(y = repeatIconOffset + 14.5.dp)
+                                .size(4.5.dp)
+                                .graphicsLayer {
+                                    scaleX = repeatDotScale
+                                    scaleY = repeatDotScale
+                                    alpha = repeatDotAlpha
                                 }
-                                .padding(horizontal = 10.dp, vertical = 6.dp)
-                        ) {
-                            Text(
-                                text = "Load",
-                                color = Color.White,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(18.dp))
-                Text(
-                    text = "Matching YouTube Results",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Color.White.copy(alpha = 0.75f),
-                    modifier = Modifier.padding(bottom = 10.dp)
-                )
-
-                if (isSearchingAlternates) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(180.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(32.dp),
-                            color = Color.White,
-                            strokeWidth = 2.5.dp
+                                .clip(CircleShape)
+                                .background(Color.White)
                         )
-                    }
-                } else if (alternateVideos.isEmpty()) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(120.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "No alternate videos found",
-                            color = Color.White.copy(alpha = 0.4f),
-                            fontSize = 13.sp
-                        )
-                    }
-                } else {
-                    LazyColumn(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(max = 320.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        items(alternateVideos) { candidate ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .bouncyClickable(pressedScale = 0.96f) {
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        onSelectAlternateVideo(candidate.videoId)
-                                        showChooseVideoSheet = false
-                                    }
-                                    .background(Color.White.copy(alpha = 0.04f))
-                                    .padding(8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                // Video Thumbnail
-                                Box(
-                                    modifier = Modifier
-                                        .size(width = 96.dp, height = 54.dp)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(Color.Black.copy(alpha = 0.4f))
-                                ) {
-                                    AsyncImage(
-                                        model = ImageRequest.Builder(LocalContext.current)
-                                            .data(candidate.thumbnailUrl)
-                                            .crossfade(true)
-                                            .build(),
-                                        contentDescription = candidate.title,
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier.fillMaxSize()
-                                    )
-                                    if (candidate.durationText.isNotBlank()) {
-                                        Box(
-                                            modifier = Modifier
-                                                .align(Alignment.BottomEnd)
-                                                .padding(3.dp)
-                                                .background(Color.Black.copy(alpha = 0.8f), RoundedCornerShape(4.dp))
-                                                .padding(horizontal = 4.dp, vertical = 1.dp)
-                                        ) {
-                                            Text(
-                                                text = candidate.durationText,
-                                                color = Color.White,
-                                                fontSize = 9.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                        }
-                                    }
-                                }
-
-                                // Details
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = candidate.title,
-                                        color = Color.White,
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        maxLines = 2
-                                    )
-                                    Spacer(modifier = Modifier.height(3.dp))
-                                    Text(
-                                        text = candidate.channel,
-                                        color = Color.White.copy(alpha = 0.55f),
-                                        fontSize = 11.sp,
-                                        maxLines = 1
-                                    )
-                                }
-                            }
-                        }
                     }
                 }
             }
         }
+
     }
 
     // ── Flagship 3-Dots Overflow Menu Sheet & Sub-Sheets ──
@@ -2075,10 +1083,8 @@ fun NowPlayingScreen(
             audioFormatInfo = audioFormatInfo,
             streamingQuality = streamingQuality,
             onCollapsePlayer = onCollapseClick,
-            onOpenVideo = { onYouTubeClick() },
             onOpenSleepTimer = { showSleepTimerDialog = true },
-            onOpenAddToPlaylist = { showAddToPlaylistSheet = true },
-            onOpenAudioSpecs = { showAudioSpecsDialog = true }
+            onOpenAddToPlaylist = { showAddToPlaylistSheet = true }
         )
 
         AddToPlaylistSheet(
@@ -2095,14 +1101,6 @@ fun NowPlayingScreen(
                 onDismiss = { showSleepTimerDialog = false }
             )
         }
-
-        AudioSpecsDialog(
-            show = showAudioSpecsDialog,
-            onDismiss = { showAudioSpecsDialog = false },
-            track = track,
-            audioFormatInfo = audioFormatInfo,
-            streamingQuality = streamingQuality
-        )
     }
 }
 

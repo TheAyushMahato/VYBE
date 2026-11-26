@@ -19,7 +19,6 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.SeekParameters
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MediaSource
-import androidx.media3.exoplayer.source.MergingMediaSource
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.vybe.music.data.audio.YouTubeAudioExtractor
@@ -54,30 +53,6 @@ class VybePlaybackService : MediaSessionService() {
             val defaultMediaSourceFactory = DefaultMediaSourceFactory(this)
                 .setDataSourceFactory(upstreamDataSourceFactory)
 
-            val mediaSourceFactory = object : MediaSource.Factory {
-                override fun createMediaSource(mediaItem: androidx.media3.common.MediaItem): MediaSource {
-                    val audioUrl = mediaItem.mediaMetadata.extras?.getString("video_audio_url")
-                    val videoUri = mediaItem.localConfiguration?.uri
-                    if (!audioUrl.isNullOrBlank() && videoUri != null && audioUrl != videoUri.toString()) {
-                        Log.i("VybePlaybackService", "Creating MergingMediaSource for unified video+audio stream from exact same videoId")
-                        val videoItem = mediaItem.buildUpon().setUri(videoUri).build()
-                        val audioItem = mediaItem.buildUpon().setUri(audioUrl).build()
-                        val videoSource = defaultMediaSourceFactory.createMediaSource(videoItem)
-                        val audioSource = defaultMediaSourceFactory.createMediaSource(audioItem)
-                        return MergingMediaSource(true, true, videoSource, audioSource)
-                    }
-                    return defaultMediaSourceFactory.createMediaSource(mediaItem)
-                }
-
-                override fun getSupportedTypes(): IntArray = defaultMediaSourceFactory.supportedTypes
-                override fun setDrmSessionManagerProvider(drmSessionManagerProvider: androidx.media3.exoplayer.drm.DrmSessionManagerProvider) = apply {
-                    defaultMediaSourceFactory.setDrmSessionManagerProvider(drmSessionManagerProvider)
-                }
-                override fun setLoadErrorHandlingPolicy(loadErrorHandlingPolicy: androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy) = apply {
-                    defaultMediaSourceFactory.setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
-                }
-            }
-
             val audioAttributes = AudioAttributes.Builder()
                 .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
                 .setUsage(C.USAGE_MEDIA)
@@ -98,7 +73,7 @@ class VybePlaybackService : MediaSessionService() {
                 .build()
 
             val exoPlayer = ExoPlayer.Builder(this, renderersFactory)
-                .setMediaSourceFactory(mediaSourceFactory)
+                .setMediaSourceFactory(defaultMediaSourceFactory)
                 .setLoadControl(loadControl)
                 .setSeekParameters(SeekParameters.CLOSEST_SYNC)
                 .setAudioAttributes(audioAttributes, true)
